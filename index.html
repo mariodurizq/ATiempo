@@ -434,6 +434,7 @@ async function originFor(inst){
   return S.settings.home;
 }
 async function compute(inst){
+  if(inst.tele) return teleCompute(inst);
   const st=S.settings;
   const arrive = inst.arrive;
   const origin = await originFor(inst);
@@ -639,7 +640,7 @@ async function buildSchedule(days=14){
   for(const i of instancesNext(days)){
     if(i.kind!=='routine' || i.holiday) continue;
     try{ const c = computed[i.key] || await compute(i); computed[i.key]=c;
-      const ref = (cfg.ref==='wake' && c.prep.getHours()>=11) ? 'prep' : cfg.ref;
+      const ref = c.tele ? 'wake' : (cfg.ref==='wake' && c.prep.getHours()>=11) ? 'prep' : cfg.ref;
       (byDay[ymd(i.arrive)] ||= []).push(...alarmTimes(c,{...cfg, ref}).map(hm));
     }catch(e){}
   }
@@ -652,6 +653,54 @@ async function sendSchedule(){
   S.settings.schedUntil = lines[lines.length-1].slice(0,10); save();
   location.href = `shortcuts://run-shortcut?name=${encodeURIComponent('ATiempo Guardar')}&input=text&text=${encodeURIComponent(lines.join('\n'))}`;
   setTimeout(()=>renderRoutines(), 800);
+}
+
+/* ---------- Teletrabajo ---------- */
+function isTele(r, day){
+  const o = r.teleDates?.[ymd(day)];
+  if(o!==undefined) return o;
+  return (r.teleDays||[]).includes(day.getDay());
+}
+function teleCompute(inst){
+  const st=S.settings, arrive=inst.arrive, m=+(inst.teleMin ?? 30);
+  const wake = addMin(arrive, -m);
+  return {tele:true, inst, arrive, wake, prep:wake, leave:arrive, drive:arrive, travel:0, garage:0, park:null, parkMin:0, buffer:0, prepMin:m,
+    tf:1, km:0, segs:null, rawDoor:0, extraSleep:0, worstWake:wake, rain:null, rainMin:0, learn:null, origin:st.home||{label:'Casa'}, src:'tele'};
+}
+function teleTimelineHTML(c){
+  return `<div style="display:flex;flex-direction:column;gap:5px;margin-top:8px">
+    <div class="blk b-sleep" style="min-height:120px"><div class="h"><span>🌙 Dormir</span><span class="badge">🏠 Teletrabajo</span></div>
+      <div class="msg">Sin trayecto: trabajas desde casa.<span>Te despierto ${c.prepMin} min antes de empezar.</span></div>
+      <div class="big">${hm(c.wake)}<small>despertar</small></div></div>
+    <div class="blk b-dest">💻 ${hm(c.arrive)} · Empiezas a trabajar desde casa</div></div>`;
+}
+function toggleTeleDay(rid, d){
+  const r=S.routines.find(x=>x.id===rid); if(!r) return;
+  const day=new Date(d+'T12:00'); r.teleDates ||= {};
+  const now = isTele(r, day), weekly=(r.teleDays||[]).includes(day.getDay());
+  if(!now === weekly) delete r.teleDates[d]; else r.teleDates[d] = !now;
+  save(); closeSheet(); renderAll(); toast(!now?'🏠 Ese día teletrabajas':'🏢 Ese día vas a la oficina');
+  if(isIOS && S.settings.schedUntil) setTimeout(()=>toast('Recuerda: Rutinas → Renovar para actualizar el iPhone'), 2700);
+}
+function askTele(rid, step, val){
+  const r=S.routines.find(x=>x.id===rid); if(!r) return;
+  if(step==='none'){ r.teleAsked=true; r.teleDays=[]; save(); renderAll(); return; }
+  if(step==='day'){ r.teleDays ||= []; r.teleDays = r.teleDays.includes(val) ? r.teleDays.filter(x=>x!==val) : [...r.teleDays, val]; save(); renderAsk(); return; }
+  if(step==='days'){ if(!(r.teleDays||[]).length) return toast('Marca algún día o pulsa “No teletrabajo”'); r._teleStep2=true; save(); renderAsk(); return; }
+  if(step==='min'){ r.teleMin=val; r.teleAsked=true; delete r._teleStep2; save(); renderAll(); toast(`🏠 Esos días te despierto ${val} min antes de las ${r.time}`); }
+}
+function teleAskHTML(){
+  const r = S.routines.find(x=>x.enabled && !x.teleAsked);
+  if(!r) return '';
+  if(!r._teleStep2) return `<div class="card" style="margin-top:12px;border-color:#2b3a5a">
+    <b>🏠 ¿Qué días teletrabajas en “${esc(r.name)}”?</b>
+    <div class="sub" style="margin:4px 0 10px">Esos días no hay trayecto: te despierto antes de tu hora de entrada (${esc(r.time)}).</div>
+    <div class="chips">${DAYS.filter(d=>r.days.includes(d.d)).map(d=>`<button class="chip ${(r.teleDays||[]).includes(d.d)?'on':''}" onclick="askTele('${r.id}','day',${d.d})">${d.l}</button>`).join('')}</div>
+    <div class="row" style="gap:8px;margin-top:12px"><button class="btn pri sm" onclick="askTele('${r.id}','days')">Siguiente</button><button class="btn sm" onclick="askTele('${r.id}','none')">No teletrabajo</button></div></div>`;
+  return `<div class="card" style="margin-top:12px;border-color:#2b3a5a">
+    <b>⏰ Los días de teletrabajo, ¿cuántos minutos antes de las ${esc(r.time)} quieres despertarte?</b>
+    <div class="chips" style="margin-top:10px">${[15,20,30,45,60,90].map(v=>`<button class="chip" onclick="askTele('${r.id}','min',${v})">${v} min</button>`).join('')}</div>
+    <div class="tiny muted" style="margin-top:8px">Las alarmas se colocan igual que siempre (antes / en medio / después, cada X min).</div></div>`;
 }
 
 /* ---------- Festivos (Madrid) ---------- */
@@ -680,7 +729,7 @@ function instancesNext(days=7){
       const arrive=new Date(day); arrive.setHours(h,m,0,0);
       if(arrive<now) continue;
       const hol = holidayName(day);
-      out.push({...r, kind:'routine', srcId:r.id, arrive, holiday:hol, key:r.id+'@'+ymd(day)});
+      out.push({...r, kind:'routine', srcId:r.id, arrive, holiday:hol, tele:isTele(r,day), key:r.id+'@'+ymd(day)});
     }
   }
   const lim = addMin(now, days*1440);
@@ -702,6 +751,7 @@ function roadSVG(level, w=400){
   </svg>`;
 }
 function timelineHTML(c, opts={}){
+  if(c.tele) return teleTimelineHTML(c);
   const isMorning = c.prep.getHours() < 11;
   const lvl = c.inst.mode==='car' ? trafficLevel(c.tf) : 'green';
   const minH = 46, scale = 1.6; // px por minuto
@@ -753,6 +803,7 @@ function extrasHTML(c){
   return t.length ? `<div class="foot" style="color:#c7d2fe;margin-top:2px">${t.join(' · ')}</div>` : '';
 }
 function widgetHTML(c){
+  if(c.tele) return `<div class="widget"><div class="k">🏠 Teletrabajo</div><div style="font-weight:600;margin-top:6px">Despierta a las ${hm(c.wake)} · empiezas a las ${hm(c.arrive)}</div></div>`;
   const lvl = c.inst.mode==='car'?trafficLevel(c.tf):'green';
   const col={green:'var(--drive)',amber:'var(--amber)',red:'var(--red)'}[lvl];
   return `<div class="widget">
@@ -810,11 +861,12 @@ async function renderHoy(){
         $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px;padding:12px">
           <div class="row between"><span class="pill">${dayName(i.arrive)} · ${esc(i.name||i.dest.label)}</span><span class="pill" id="cd"></span></div>
           ${timelineHTML(c)}${widgetHTML(c)}
-          ${!S.activeTrip && Date.now()>=+c.prep-15*60000 && Date.now()<+c.arrive ? `<button class="btn" style="width:100%;margin-top:12px;border-color:var(--accent)" onclick="salgoYa('${esc(i.key)}')">🚪 Salgo ya (para aprender cuánto tardas)</button>`:''}
+          ${!c.tele && !S.activeTrip && Date.now()>=+c.prep-15*60000 && Date.now()<+c.arrive ? `<button class="btn" style="width:100%;margin-top:12px;border-color:var(--accent)" onclick="salgoYa('${esc(i.key)}')">🚪 Salgo ya (para aprender cuánto tardas)</button>`:''}
           <button class="btn pri" style="width:100%;margin-top:12px" onclick="openAlarms('${esc(i.key)}')">⏰ Poner alarmas en el móvil</button></div>`;
         $('#cd').textContent = countdownTxt(c);
       }
       const el = up.querySelector(`[data-key="${CSS.escape(i.key)}"] [data-out]`);
+      if(el && c.tele){ el.innerHTML = `🏠 Teletrabajo · ⏰ Despertar <b style="color:var(--txt)">${hm(c.wake)}</b> · empiezas ${hm(c.arrive)}`; continue; }
       if(el) el.innerHTML = `${i.shared?'👥 ':''}${c.prep.getHours()<11?`⏰ Despertar <b style="color:var(--txt)">${hm(c.wake)}</b> · `:`Prepararte ${hm(c.prep)} · `}🚪 Salir <b style="color:var(--accent)">${hm(c.leave)}</b> · ${c.garage?`🚶 ${c.garage} + `:''}${MODE[i.mode].ic} ${c.travel} min${c.park?` + 🅿️ ${c.parkMin}`:''}`;
       if(i.kind==='plan'){ const pl=S.plans.find(p=>p.id===i.srcId); if(pl?.shared) maybeSync(pl,c); }
     }catch(e){
@@ -886,6 +938,8 @@ function openForm(kind, id){
       <div><label class="f">Tardo en prepararme (min)</label><input class="i" type="number" min="0" id="fPrep" value="${f.prepMin??''}" placeholder="${st.prepMin} (por defecto)"></div>
       <div><label class="f">Trayecto fijo (opcional)</label><input class="i" type="number" min="0" id="fManual" value="${f.manualTravel||''}" placeholder="auto"></div>
     </div>
+    ${isR?`<label class="f">🏠 Días de teletrabajo (sin trayecto)</label><div class="chips" id="fTele">${DAYS.map(d=>`<button type="button" class="chip ${(f.teleDays||[]).includes(d.d)?'on':''}" data-d="${d.d}">${d.l}</button>`).join('')}</div>
+      <div id="fTeleMinWrap"><label class="f">Esos días, despertarme ¿cuántos minutos antes de la entrada?</label><input class="i" type="number" min="0" id="fTeleMin" value="${f.teleMin??30}"></div>`:''}
     <div id="fGarWrap"><label class="f">🚗 ¿Cuánto tardas de casa a tu garaje? (min, 0 si aparcas en la calle)</label><input class="i" type="number" min="0" id="fGarage" value="${st.garageMin??''}" placeholder="Se guarda para todos tus trayectos en coche"></div>
     <label class="row" style="margin-top:14px;gap:10px;font-size:14px" id="fParkWrap"><button type="button" class="sw ${f.hasParking?'on':''}" id="fPark"></button> Tengo plaza de aparcamiento allí</label>
     <div class="row" style="margin-top:20px;gap:8px">
@@ -897,6 +951,9 @@ function openForm(kind, id){
   single('#fMode','mode'); single('#fOrigin','originType'); single('#fType','type');
   const parkVis = () => { $('#fParkWrap').style.display = f.mode==='car'?'flex':'none'; $('#fGarWrap').style.display = f.mode==='car'?'block':'none'; }; parkVis();
   $('#fPark').onclick = e => { f.hasParking=!f.hasParking; e.currentTarget.classList.toggle('on', f.hasParking); };
+  f.teleDays ||= [];
+  const teleVis=()=>{ const w=$('#fTeleMinWrap'); if(w) w.style.display=f.teleDays.length?'block':'none'; }; teleVis();
+  $('#fTele')?.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ const d=+b.dataset.d; f.teleDays = f.teleDays.includes(d)?f.teleDays.filter(x=>x!==d):[...f.teleDays,d]; b.classList.toggle('on'); teleVis(); });
   $('#fDays')?.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ const d=+b.dataset.d; f.days = f.days.includes(d)?f.days.filter(x=>x!==d):[...f.days,d]; b.classList.toggle('on'); });
   $('#fSave').onclick = () => {
     if(!f.dest) return toast('Elige un destino');
@@ -904,7 +961,7 @@ function openForm(kind, id){
     const p=$('#fPrep').value; f.prepMin = p===''?null:+p;
     f.manualTravel = $('#fManual').value;
     if(f.mode==='car' && $('#fGarage').value!=='') S.settings.garageMin = Math.max(0, +$('#fGarage').value||0);
-    if(isR){ f.time=$('#fTime').value||'09:00'; if(!f.days.length) return toast('Elige al menos un día'); }
+    if(isR){ f.time=$('#fTime').value||'09:00'; if(!f.days.length) return toast('Elige al menos un día'); f.teleMin=Math.max(0,+$('#fTeleMin').value||30); f.teleAsked=true; }
     else { f.when=$('#fWhen').value; if(!f.when) return toast('Pon la hora'); }
     const arr = isR?S.routines:S.plans; const k=arr.findIndex(x=>x.id===f.id);
     if(k>=0) arr[k]=f; else arr.push(f);
@@ -927,6 +984,17 @@ async function openDetail(key){
   try{
     const c = computed[key] || await compute(inst);
     computed[key]=c;
+    if(inst.kind==='routine'){
+      const d=ymd(inst.arrive);
+      const tbtn = `<button class="btn" style="width:100%;margin-top:8px" onclick="toggleTeleDay('${inst.srcId}','${d}')">${c.tele?'🏢 Este día voy a la oficina':'🏠 Este día teletrabajo'}</button>`;
+      if(c.tele){
+        $('#dBody').innerHTML = `${teleTimelineHTML(c)}${tbtn}
+          <button class="btn pri" style="width:100%;margin-top:8px" onclick="openAlarms('${esc(key)}')">⏰ Poner alarmas en el móvil</button>
+          <button class="btn" style="width:100%;margin-top:8px" onclick="openForm('routine','${inst.srcId}')">✏️ Editar rutina</button>`;
+        return;
+      }
+      setTimeout(()=>{ const b=document.createElement('div'); b.innerHTML=tbtn; $('#dBody')?.appendChild(b.firstChild); },0);
+    }
     if(inst.kind==='plan'){ const pl=S.plans.find(p=>p.id===inst.srcId); if(pl?.shared) maybeSync(pl,c); }
     const d=inst.dest, tm={car:'driving',transit:'transit',walk:'walking',bike:'bicycling'}[inst.mode];
     detailOpen = inst.kind==='plan' ? inst.srcId : null;
@@ -1081,6 +1149,7 @@ function scheduleNotifs(){
   if(!S.settings.notif || !('Notification' in window) || Notification.permission!=='granted') return;
   const now=Date.now();
   Object.values(computed).forEach(c=>{
+    if(c.tele) return;
     [[c.prep,`💧 Empieza a prepararte`,`Para llegar a ${c.inst.name} a las ${hm(c.arrive)}`],
      [c.leave,`🚪 Sal ya hacia ${c.inst.name}`,`${MODE[c.inst.mode].ic} ${c.travel} min${c.park?` + ${c.parkMin} min aparcar`:''}`]]
     .forEach(([t,title,body])=>{
@@ -1153,6 +1222,7 @@ function importJSON(inp){
 /* ---------- Pregunta: tiempo hasta el garaje ---------- */
 function renderAsk(){
   const st=S.settings, box=$('#askBox');
+  const ta = teleAskHTML(); if(ta){ box.innerHTML = ta; return; }
   const usesCar = st.mode==='car' || S.routines.some(r=>r.mode==='car') || S.plans.some(p=>p.mode==='car');
   if(st.garageMin!=null || !st.home || !usesCar){ box.innerHTML=''; return; }
   box.innerHTML = `<div class="card" style="margin-top:12px;border-color:#2b4a46">
@@ -1429,10 +1499,11 @@ async function openAlarms(key){
   const cfg = alarmCfg();
   const isMorning = c.prep.getHours()<11;
   if(!isMorning && cfg.ref==='wake') cfg.ref='prep';
+  if(c.tele) cfg.ref='wake';
   $('#sheet').innerHTML = `<div class="row between"><h2 style="margin:0">⏰ Alarmas en el móvil</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div>
     <div class="sub">${esc(c.inst.name)} · ${dayName(c.arrive)} · llegar ${hm(c.arrive)}</div>
     <label class="f">¿Para qué hora?</label>
-    <div class="chips" id="aRef">${(isMorning?['wake','prep','leave']:['prep','leave']).map(r=>`<button class="chip ${cfg.ref===r?'on':''}" data-v="${r}">${r==='wake'?'⏰ Despertar '+hm(c.wake):r==='prep'?'💧 Prepararte '+hm(c.prep):'🚪 Salir '+hm(c.leave)}</button>`).join('')}</div>
+    <div class="chips" id="aRef">${(c.tele?['wake']:isMorning?['wake','prep','leave']:['prep','leave']).map(r=>`<button class="chip ${cfg.ref===r?'on':''}" data-v="${r}">${r==='wake'?'⏰ Despertar '+hm(c.wake):r==='prep'?'💧 Prepararte '+hm(c.prep):'🚪 Salir '+hm(c.leave)}</button>`).join('')}</div>
     <label class="f">¿Cuántas alarmas quieres?</label>
     <div class="chips" id="aN">${[1,2,3,4,5,6].map(v=>`<button class="chip ${+cfg.n===v?'on':''}" data-v="${v}">${v}</button>`).join('')}</div>
     <div id="aPosWrap">
@@ -1525,7 +1596,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v11';
+const APP_VERSION = 'v12';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
