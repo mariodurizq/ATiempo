@@ -34,6 +34,7 @@ h2{font-size:18px;margin:22px 0 10px;font-weight:700}
 .btn.pri{background:var(--accent);color:#1a1205;border:none}
 .btn.sm{padding:7px 11px;font-size:13px;border-radius:11px}
 .btn.ghost{background:transparent}
+.btn:disabled{opacity:.45}
 .btn.danger{color:#fca5a5;border-color:#4b1f1f}
 .plus{width:38px;height:38px;border-radius:50%;background:var(--card2);border:none;color:var(--accent);font-size:24px;cursor:pointer;line-height:1}
 .card{background:var(--card);border-radius:var(--r);padding:14px;border:1px solid #20202a}
@@ -82,6 +83,12 @@ section.view.on{display:block;animation:fade .25s ease}
 .b-drive{background:#1b1d22;justify-content:flex-start;gap:4px;padding-bottom:54px}
 .b-drive svg{position:absolute;left:0;right:0;bottom:6px;width:100%;height:46px}
 .b-park{background:#211b33}
+.b-garage{background:#132624}
+.b-garage .h{color:#5eead4}
+.person{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.person:last-child{border:none}
+.av{width:34px;height:34px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-weight:800;flex:none}
+.linkbox{background:var(--card2);border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:12px;word-break:break-all;color:var(--mut);margin-top:8px}
 .b-park .h{color:var(--park)}
 .b-dest{background:var(--card2);min-height:0;padding:10px 12px;font-size:13px;font-weight:600;flex-direction:row;align-items:center;gap:8px}
 .msg{font-size:15px;font-weight:600;position:relative;z-index:1}
@@ -139,6 +146,7 @@ input.i:focus{border-color:var(--accent)}
       </div>
       <button class="plus" onclick="openForm('plan')" title="Nuevo plan">+</button>
     </div>
+    <div id="askBox"></div>
     <div id="nextBox"></div>
 
     <h2>¿Cuándo salgo?</h2>
@@ -187,6 +195,10 @@ input.i:focus{border-color:var(--accent)}
       <label class="f" style="margin-top:0">🏠 Mi casa (punto de salida por defecto)</label>
       <div id="homePlace"></div>
       <button class="btn sm" style="margin-top:8px" onclick="homeFromGPS()">📍 Usar mi ubicación actual como casa</button>
+      <div class="grid2">
+        <div><label class="f">🚗 Casa → mi garaje (min)</label><input class="i" type="number" min="0" id="sGarage" placeholder="0 = aparco en la calle"></div>
+        <div><label class="f">🙋 Tu nombre</label><input class="i" id="sName" placeholder="Para planes con amigos"></div>
+      </div>
     </div>
     <div class="card" style="margin-top:12px">
       <div class="grid2">
@@ -243,7 +255,7 @@ const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 
 /* ---------- Estado ---------- */
 const DEFAULT = {
-  settings:{prepMin:45, bufferMin:5, wakeMin:10, mode:'car', risk:1, notif:false, home:null},
+  settings:{prepMin:45, bufferMin:5, wakeMin:10, mode:'car', risk:1, notif:false, home:null, garageMin:null, myName:''},
   routines:[], plans:[]
 };
 let S;
@@ -427,13 +439,20 @@ async function compute(inst){
   const parkMin = park ? park.min : 0;
   const buffer = st.bufferMin;
   const prepMin = inst.prepMin ?? st.prepMin;
-  const leave = addMin(arrive, -(buffer+parkMin+travel));
+  // Tiempo de casa al garaje: solo en coche y si sales de casa (o tu GPS está en casa)
+  let garage = 0;
+  if(inst.mode==='car' && +st.garageMin>0){
+    const atHome = inst.originType==='home' || origin.fallback || (st.home && haversine(origin, st.home)<300);
+    if(atHome) garage = +st.garageMin;
+  }
+  const drive = addMin(arrive, -(buffer+parkMin+travel));
+  const leave = addMin(drive, -garage);
   const prep = addMin(leave, -prepMin);
   const wake = addMin(prep, -st.wakeMin);
   // "alarma de seguridad" con el peor tráfico (como el vídeo: +X min de sueño)
-  const worstWake = addMin(arrive, -(buffer+parkMin+worst+prepMin+st.wakeMin));
+  const worstWake = addMin(arrive, -(buffer+parkMin+worst+garage+prepMin+st.wakeMin));
   const extraSleep = Math.max(0, Math.round((wake-worstWake)/60000));
-  return {inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
+  return {garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
 }
 
 /* ---------- Instancias (rutinas + planes) ---------- */
@@ -489,8 +508,12 @@ function timelineHTML(c, opts={}){
     ${sleep}
     <div class="blk b-ready" style="min-height:${h(c.prepMin)}px">
       <div class="h"><span>💧 Prepararte · ${hm(c.prep)}</span><span>${c.prepMin} min</span></div>
-      <div class="foot">Sal a las <b style="color:#fff;font-size:15px">${hm(c.leave)}</b></div>
+      <div class="foot">Sal ${c.garage?'de casa ':''}a las <b style="color:#fff;font-size:15px">${hm(c.leave)}</b></div>
     </div>
+    ${c.garage?`<div class="blk b-garage" style="min-height:${h(c.garage)}px">
+      <div class="h"><span>🚶 Al garaje</span><span>${c.garage} min</span></div>
+      <div class="foot">Arrancas a las ${hm(c.drive)}</div>
+    </div>`:''}
     <div class="blk b-drive" style="min-height:${Math.max(84,h(c.travel))}px">
       <div class="h"><span>${MODE[c.inst.mode].ic} ${MODE[c.inst.mode].n}${c.km?` · ${c.km.toFixed(1)} km`:''}</span><span style="color:${travelCol}">${c.travel} min</span></div>
       ${c.inst.mode==='car'?`<div class="foot">${trafficTxt} · ×${c.tf.toFixed(2)}${c.inst.manualTravel?' · tiempo manual':''}</div>`:''}
@@ -526,6 +549,7 @@ async function renderHoy(){
   const t=new Date();
   $('#todayStr').textContent = t.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
   const list = instancesNext(7);
+  renderAsk();
   if(!S.settings.home){
     $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px"><b>👋 Empieza por aquí</b><div class="sub" style="margin:6px 0 12px">Dime dónde vives y crea tu primera rutina (p. ej. ir a trabajar) para ver a qué hora levantarte.</div><button class="btn pri" onclick="go('ajustes')">Configurar mi casa</button></div>`;
   } else if(!list.length){
@@ -560,14 +584,15 @@ async function renderHoy(){
         $('#cd').textContent = countdownTxt(c);
       }
       const el = up.querySelector(`[data-key="${CSS.escape(i.key)}"] [data-out]`);
-      if(el) el.innerHTML = `${c.prep.getHours()<11?`⏰ Despertar <b style="color:var(--txt)">${hm(c.wake)}</b> · `:`Prepararte ${hm(c.prep)} · `}🚪 Salir <b style="color:var(--accent)">${hm(c.leave)}</b> · ${MODE[i.mode].ic} ${c.travel} min${c.park?` + 🅿️ ${c.parkMin}`:''}`;
+      if(el) el.innerHTML = `${i.shared?'👥 ':''}${c.prep.getHours()<11?`⏰ Despertar <b style="color:var(--txt)">${hm(c.wake)}</b> · `:`Prepararte ${hm(c.prep)} · `}🚪 Salir <b style="color:var(--accent)">${hm(c.leave)}</b> · ${c.garage?`🚶 ${c.garage} + `:''}${MODE[i.mode].ic} ${c.travel} min${c.park?` + 🅿️ ${c.parkMin}`:''}`;
+      if(i.kind==='plan'){ const pl=S.plans.find(p=>p.id===i.srcId); if(pl?.shared) maybeSync(pl,c); }
     }catch(e){
       if(first){ first=false; $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px">⚠️ ${esc(e.message)}</div>`; }
       const el = up.querySelector(`[data-key="${CSS.escape(i.key)}"] [data-out]`);
       if(el) el.textContent = '⚠️ '+e.message;
     }
   }
-  scheduleNotifs();
+  scheduleNotifs(); syncSubs(); syncWatch();
 }
 setInterval(()=>{ const k=Object.keys(computed)[0]; const list=instancesNext(1); const c=list[0]&&computed[list[0].key]; if(c && $('#cd')) $('#cd').textContent=countdownTxt(c); }, 30000);
 
@@ -630,6 +655,7 @@ function openForm(kind, id){
       <div><label class="f">Tardo en prepararme (min)</label><input class="i" type="number" min="0" id="fPrep" value="${f.prepMin??''}" placeholder="${st.prepMin} (por defecto)"></div>
       <div><label class="f">Trayecto fijo (opcional)</label><input class="i" type="number" min="0" id="fManual" value="${f.manualTravel||''}" placeholder="auto"></div>
     </div>
+    <div id="fGarWrap"><label class="f">🚗 ¿Cuánto tardas de casa a tu garaje? (min, 0 si aparcas en la calle)</label><input class="i" type="number" min="0" id="fGarage" value="${st.garageMin??''}" placeholder="Se guarda para todos tus trayectos en coche"></div>
     <label class="row" style="margin-top:14px;gap:10px;font-size:14px" id="fParkWrap"><button type="button" class="sw ${f.hasParking?'on':''}" id="fPark"></button> Tengo plaza de aparcamiento allí</label>
     <div class="row" style="margin-top:20px;gap:8px">
       ${src?`<button class="btn danger" onclick="delItem('${kind}','${f.id}')">Borrar</button>`:''}
@@ -638,7 +664,7 @@ function openForm(kind, id){
   placePicker($('#fPlace'), f.dest, p=>{ f.dest=p; if(!$('#fName').value) $('#fName').value=p.label.split(',')[0]; });
   const single = (sel, key) => $(sel)?.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ $(sel).querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); f[key]=b.dataset.v; if(key==='mode') parkVis(); });
   single('#fMode','mode'); single('#fOrigin','originType'); single('#fType','type');
-  const parkVis = () => $('#fParkWrap').style.display = f.mode==='car'?'flex':'none'; parkVis();
+  const parkVis = () => { $('#fParkWrap').style.display = f.mode==='car'?'flex':'none'; $('#fGarWrap').style.display = f.mode==='car'?'block':'none'; }; parkVis();
   $('#fPark').onclick = e => { f.hasParking=!f.hasParking; e.currentTarget.classList.toggle('on', f.hasParking); };
   $('#fDays')?.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ const d=+b.dataset.d; f.days = f.days.includes(d)?f.days.filter(x=>x!==d):[...f.days,d]; b.classList.toggle('on'); });
   $('#fSave').onclick = () => {
@@ -646,6 +672,7 @@ function openForm(kind, id){
     f.name = $('#fName').value.trim() || f.dest.label.split(',')[0];
     const p=$('#fPrep').value; f.prepMin = p===''?null:+p;
     f.manualTravel = $('#fManual').value;
+    if(f.mode==='car' && $('#fGarage').value!=='') S.settings.garageMin = Math.max(0, +$('#fGarage').value||0);
     if(isR){ f.time=$('#fTime').value||'09:00'; if(!f.days.length) return toast('Elige al menos un día'); }
     else { f.when=$('#fWhen').value; if(!f.when) return toast('Pon la hora'); }
     const arr = isR?S.routines:S.plans; const k=arr.findIndex(x=>x.id===f.id);
@@ -655,18 +682,23 @@ function openForm(kind, id){
   openSheet();
 }
 function delItem(kind,id){
+  const pl = kind==='plan' && S.plans.find(x=>x.id===id);
+  if(pl?.shared){ sendData(pl,{type:'leave-plan'}); sendHuman(pl, `❌ ${S.settings.myName||'Alguien'} ya no va a ${pl.name}`, 'Ha quitado el plan de su ATiempo'); }
   if(kind==='routine') S.routines=S.routines.filter(x=>x.id!==id); else S.plans=S.plans.filter(x=>x.id!==id);
   save(); closeSheet(); renderAll(); toast('Borrado');
 }
 
 /* ---------- Detalle (con parkings cercanos y enlaces) ---------- */
 async function openDetail(key){
-  const inst = instancesNext(7).find(i=>i.key===key); if(!inst) return;
+  const inst = instancesNext(60).find(i=>i.key===key); if(!inst) return;
   $('#sheet').innerHTML = `<div class="row between"><h2 style="margin:0">${esc(inst.name)}</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div><div class="sub">${dayName(inst.arrive)} · llegar a las ${hm(inst.arrive)}</div><div id="dBody"><div style="padding:20px"><span class="spin"></span></div></div>`;
   openSheet();
   try{
     const c = computed[key] || await compute(inst);
+    computed[key]=c;
+    if(inst.kind==='plan'){ const pl=S.plans.find(p=>p.id===inst.srcId); if(pl?.shared) maybeSync(pl,c); }
     const d=inst.dest, tm={car:'driving',transit:'transit',walk:'walking',bike:'bicycling'}[inst.mode];
+    detailOpen = inst.kind==='plan' ? inst.srcId : null;
     $('#dBody').innerHTML = `
       ${timelineHTML(c,{compact:true})}
       <div class="card" style="margin-top:12px">
@@ -674,11 +706,13 @@ async function openDetail(key){
         <div class="kv"><span>${MODE[inst.mode].ic} Trayecto</span><b>${c.travel} min${c.km?` · ${c.km.toFixed(1)} km`:''}</b></div>
         ${inst.mode==='car'?`<div class="kv"><span>Tráfico previsto</span><b>×${c.tf.toFixed(2)} (${({green:'fluido',amber:'moderado',red:'hora punta'})[trafficLevel(c.tf)]})</b></div>`:''}
         ${c.park?`<div class="kv"><span>🅿️ Aparcar (${esc(c.park.zone)})</span><b>${c.parkMin} min</b></div><div class="tiny muted" style="padding:4px 0 8px">${esc(c.park.note)}</div>`:''}
+        ${c.garage?`<div class="kv"><span>🚶 Casa → garaje</span><b>${c.garage} min</b></div>`:''}
         <div class="kv"><span>Margen</span><b>${c.buffer} min</b></div>
         <div class="kv"><span>💧 Prepararte</span><b>${c.prepMin} min</b></div>
         ${c.src==='est'?`<div class="tiny" style="color:var(--amber)">Ruta estimada sin conexión.</div>`:''}
       </div>
       ${inst.mode==='car'&&!inst.hasParking?`<div class="card" style="margin-top:12px"><div class="row between"><b>Parkings públicos cerca</b><button class="btn sm" id="dPk">Buscar</button></div><div id="dPkOut" class="tiny muted" style="margin-top:6px">Garajes a menos de 800 m del destino.</div></div>`:''}
+      ${inst.kind==='plan'?`<div class="card" style="margin-top:12px" id="people">${peopleHTML(S.plans.find(p=>p.id===inst.srcId), c)}</div>`:''}
       <div class="links">
         <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lon}&travelmode=${tm}" target="_blank" rel="noopener">🗺️ Google Maps (tráfico real)</a>
         ${inst.mode==='car'?`<a class="btn sm" href="https://waze.com/ul?ll=${d.lat},${d.lon}&navigate=yes" target="_blank" rel="noopener">🚙 Waze</a>`:''}
@@ -735,9 +769,9 @@ function renderPlans(){
   if(!ps.length){ el.innerHTML=`<div class="card empty">No tienes reservas ni planes.<br><br><button class="btn pri" onclick="openForm('plan')">🍽️ Añadir reserva</button></div>`; return; }
   el.innerHTML = ps.map(p=>{
     const d=new Date(p.when), past=d<addMin(now,-60);
-    return `<div class="card item" style="${past?'opacity:.45':''}" onclick="${past||d>addMin(now,7*1440)?`openForm('plan','${p.id}')`:`openDetail('${p.id}')`}">
+    return `<div class="card item" style="${past?'opacity:.45':''}" onclick="${past?`openForm('plan','${p.id}')`:`openDetail('${p.id}')`}">
       <div class="when"><b>${hm(d)}</b><span>${d.toLocaleDateString('es-ES',{day:'numeric',month:'short'})}</span></div>
-      <div class="what"><div class="n">${p.type==='reserva'?'🍽️':p.type==='cita'?'🩺':'📍'} ${esc(p.name)}</div><div class="tiny muted">${MODE[p.mode].ic} ${esc(p.dest.label)}</div></div></div>`;
+      <div class="what"><div class="n">${p.type==='reserva'?'🍽️':p.type==='cita'?'🩺':'📍'} ${esc(p.name)}${p.shared?` <span class="pill" style="padding:2px 8px">👥 ${Object.keys(p.shared.people||{}).length+1}</span>`:''}</div><div class="tiny muted">${MODE[p.mode].ic} ${esc(p.dest.label)}</div></div></div>`;
   }).join('');
 }
 
@@ -773,11 +807,14 @@ function renderSettings(){
   $('#sPrep').value=st.prepMin; $('#sBuffer').value=st.bufferMin; $('#sWake').value=st.wakeMin; $('#sMode').value=st.mode;
   $('#sRisk').querySelectorAll('.chip').forEach(b=>{ b.classList.toggle('on', +b.dataset.v===st.risk); b.onclick=()=>{ st.risk=+b.dataset.v; save(); renderSettings(); renderAll(true); }; });
   $('#sNotif').classList.toggle('on', st.notif);
+  $('#sGarage').value = st.garageMin??''; $('#sName').value = st.myName||'';
 }
 ['sPrep','sBuffer','sWake'].forEach(id=>document.getElementById(id).onchange=e=>{
   const k={sPrep:'prepMin',sBuffer:'bufferMin',sWake:'wakeMin'}[id]; S.settings[k]=Math.max(0,+e.target.value||0); save(); renderAll(true);
 });
 $('#sMode').onchange=e=>{ S.settings.mode=e.target.value; save(); };
+$('#sGarage').onchange=e=>{ S.settings.garageMin = e.target.value===''?null:Math.max(0,+e.target.value||0); save(); renderAll(); };
+$('#sName').onchange=e=>{ S.settings.myName=e.target.value.trim(); save(); };
 $('#sNotif').onclick=async()=>{
   if(!S.settings.notif){
     if(!('Notification' in window)) return toast('Tu navegador no permite avisos. En iPhone: instala la web (Compartir → Añadir a inicio).');
@@ -806,6 +843,8 @@ function scheduleNotifs(){
   });
 }
 async function notify(title, body){
+  if(document.visibilityState==='visible') toast(`${title} · ${body}`);
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
   try{ const reg = await navigator.serviceWorker?.getRegistration(); if(reg) return reg.showNotification(title,{body,icon:'icon-192.png'}); }catch(e){}
   try{ new Notification(title,{body}); }catch(e){}
 }
@@ -861,6 +900,252 @@ function importJSON(inp){
   f.text().then(t=>{ try{ const j=JSON.parse(t); if(!j.settings) throw 0; try{ localStorage.setItem('atiempo.v1', JSON.stringify(j)); }catch(e){} load(); if(!S.settings.home && j.settings.home) S=Object.assign(structuredClone(DEFAULT),j); save(); renderAll(); toast('Datos importados ✓'); }catch(e){ toast('Archivo no válido'); } });
 }
 
+/* ---------- Pregunta: tiempo hasta el garaje ---------- */
+function renderAsk(){
+  const st=S.settings, box=$('#askBox');
+  const usesCar = st.mode==='car' || S.routines.some(r=>r.mode==='car') || S.plans.some(p=>p.mode==='car');
+  if(st.garageMin!=null || !st.home || !usesCar){ box.innerHTML=''; return; }
+  box.innerHTML = `<div class="card" style="margin-top:12px;border-color:#2b4a46">
+    <b>🚗 ¿Tienes garaje o plaza para el coche?</b>
+    <div class="sub" style="margin:4px 0 10px">¿Cuánto tardas desde que sales de casa hasta que arrancas? Lo sumo a todos tus trayectos en coche.</div>
+    <div class="chips">${[[0,'No, aparco en la calle'],[2,'2 min'],[5,'5 min'],[8,'8 min'],[12,'12 min']].map(([v,l])=>`<button class="chip" onclick="setGarage(${v})">${l}</button>`).join('')}
+    <button class="chip" onclick="go('ajustes');document.getElementById('sGarage').focus()">Otro…</button></div></div>`;
+}
+function setGarage(v){ S.settings.garageMin=v; save(); renderAll(); toast(v?`Sumaré ${v} min hasta el garaje ✓`:'Entendido ✓'); }
+
+/* ---------- Planes compartidos (ntfy.sh: gratis, sin cuentas ni servidor propio) ---------- */
+const NTFY='https://ntfy.sh';
+const DEVICE = (()=>{ try{ let d=localStorage.getItem('atiempo.dev'); if(!d){ d=uid()+uid(); localStorage.setItem('atiempo.dev',d); } return d; }catch(e){ return uid()+uid(); } })();
+const b64e = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const b64d = s => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/')))));
+const appURL = () => location.origin + location.pathname;
+let detailOpen = null;
+
+async function ntfyPub(topic, message, opt={}){
+  try{ await fetch(NTFY, {method:'POST', body:JSON.stringify({topic, message, ...opt})}); }catch(e){}
+}
+// Canal de datos (lo lee la app) y canal "humano" (para la app ntfy con push aunque la web esté cerrada)
+function sendData(plan, data){
+  return ntfyPub(plan.shared.topic+'-d', JSON.stringify({...data, from:S.settings.myName||'Alguien', dev:DEVICE, ts:Date.now()}));
+}
+function sendHuman(plan, title, message, at){
+  const o={title, click:appURL()};
+  if(at){ const sec=(at-Date.now())/1000; if(sec<15 || sec>3*86400) return; o.delay=String(Math.floor(at/1000)); }
+  return ntfyPub(plan.shared.topic, message, o);
+}
+function ensureShared(plan){
+  if(!plan.shared){ plan.shared={topic:'atiempo-'+uid()+uid(), role:'host', people:{}, shareMe:true, shareLoc:false}; save(); }
+  return plan.shared;
+}
+function inviteLink(plan){
+  return appURL()+'?j='+b64e({t:plan.shared.topic, n:plan.name, w:plan.when, d:plan.dest, h:S.settings.myName||'', ty:plan.type});
+}
+function maybeSync(plan, c){
+  const sh=plan.shared; if(!sh.shareMe) return;
+  const sig = `${+c.prep}|${+c.leave}`;
+  if(sh.lastSent===sig) return;
+  const first = !sh.lastSent;
+  sh.lastSent = sig; save();
+  sendData(plan, {type:first&&sh.role==='guest'?'join':'times', prep:+c.prep, leave:+c.leave, arrive:+c.arrive, travel:c.travel, mode:plan.mode, eta:+addMin(c.leave, c.garage+c.travel+c.parkMin)});
+  if(!sh.remSent){ // recordatorios push programados (app ntfy)
+    sh.remSent=true; save();
+    const me=S.settings.myName||'Alguien';
+    sendHuman(plan, `💧 ${me}: hora de prepararse`, `Para ${plan.name} a las ${hm(c.arrive)} · sale a las ${hm(c.leave)}`, +c.prep);
+    sendHuman(plan, `🚪 ${me}: hora de salir`, `${MODE[plan.mode].ic} ${c.travel} min hasta ${plan.name}`, +c.leave);
+  }
+}
+
+async function syncShared(plan){
+  try{ const c=await compute({...plan, arrive:new Date(plan.when)}); computed[plan.id]=c; maybeSync(plan,c); refreshPeople(plan.id); }catch(e){}
+}
+/* Recibir mensajes en directo */
+const subs={};
+function syncSubs(){
+  const now=Date.now();
+  const active=S.plans.filter(p=>p.shared && new Date(p.when).getTime()>now-3*3600e3);
+  const want=new Set(active.map(p=>p.shared.topic));
+  for(const t in subs) if(!want.has(t)){ subs[t].close(); delete subs[t]; }
+  for(const p of active){
+    const t=p.shared.topic; if(subs[t] || !window.EventSource) continue;
+    try{
+      const es=new EventSource(`${NTFY}/${t}-d/sse?since=${p.shared.lastId||'all'}`);
+      es.onmessage=ev=>{ try{ const m=JSON.parse(ev.data); if(m.event==='message') onShared(t,m); }catch(e){} };
+      subs[t]=es;
+    }catch(e){}
+  }
+}
+function onShared(topic, m){
+  const plan=S.plans.find(p=>p.shared?.topic===topic); if(!plan) return;
+  const sh=plan.shared; sh.lastId=m.id;
+  let d; try{ d=JSON.parse(m.message); }catch(e){ save(); return; }
+  if(d.dev===DEVICE){ save(); return; }
+  sh.seen ||= []; if(sh.seen.includes(m.id)) return; sh.seen.push(m.id); if(sh.seen.length>200) sh.seen.splice(0,100);
+  const fresh = Date.now()-d.ts < 15*60000;
+  if(d.type==='leave-plan'){ delete sh.people[d.dev]; save(); refreshPeople(plan.id); return; }
+  const P = sh.people[d.dev] ||= {};
+  P.name=d.from; P.ts=d.ts;
+  if(d.type==='join'||d.type==='times'){
+    Object.assign(P,{prep:d.prep, leave:d.leave, arrive:d.arrive, travel:d.travel, mode:d.mode, eta:d.eta});
+    if(d.type==='join' && fresh) notify(`👋 ${d.from} se apunta a ${plan.name}`, `Se prepara a las ${hm(new Date(d.prep))} y sale a las ${hm(new Date(d.leave))}`);
+  }
+  if(d.type==='left'){ P.status='left'; P.eta=d.eta; if(fresh) notify(`🚪 ${d.from} acaba de salir`, `Llegará a ${plan.name} sobre las ${hm(new Date(d.eta))}`); }
+  if(d.type==='arrived'){ P.status='arrived'; if(fresh) notify(`📍 ${d.from} ya ha llegado`, plan.name); }
+  save(); refreshPeople(plan.id);
+}
+
+/* Quién viene */
+function personStatus(P){
+  const n=Date.now();
+  if(P.status==='arrived') return ['📍 Ha llegado','var(--green)'];
+  if(P.status==='left') return [`🚗 En camino · llega ~${hm(new Date(P.eta))}`,'var(--accent)'];
+  if(P.leave && n>P.leave) return ['⏳ Ya debería haber salido','var(--amber)'];
+  if(P.prep && n>P.prep) return [`💧 Preparándose · sale ${hm(new Date(P.leave))}`,'var(--ready)'];
+  if(P.prep) return [`Se prepara ${hm(new Date(P.prep))} · sale ${hm(new Date(P.leave))}`,'var(--mut)'];
+  return ['Sin tiempos todavía','var(--mut)'];
+}
+function peopleHTML(plan, c){
+  if(!plan) return '';
+  if(!plan.shared) return `<div class="row between"><div><b>👥 ¿Vas con alguien?</b><div class="tiny muted">Invítale: verá a qué hora prepararse y salir, y os avisaréis al salir de casa.</div></div><button class="btn sm pri" onclick="openInvite('${plan.id}')">Invitar</button></div>`;
+  const sh=plan.shared, me=S.settings.myName||'Tú';
+  const myP = c ? {prep:+c.prep, leave:+c.leave, eta:+addMin(c.leave,c.garage+c.travel+c.parkMin), status:sh.meStatus} : {status:sh.meStatus};
+  const rows=[[me+' (tú)', myP], ...Object.values(sh.people).map(P=>[P.name,P])];
+  return `<div class="row between"><b>👥 Quién viene</b><button class="btn sm" onclick="openInvite('${plan.id}')">+ Invitar</button></div>
+    ${rows.map(([n,P])=>{ const [t,col]=personStatus(P); return `<div class="person"><div class="av">${esc((n||'?')[0].toUpperCase())}</div><div style="flex:1;min-width:0"><b>${esc(n)}</b><div class="tiny" style="color:${col}">${t}</div></div></div>`; }).join('')}
+    ${rows.length===1?`<div class="tiny muted" style="margin-top:6px">Aún no se ha unido nadie. Envíale el enlace de invitación.</div>`:''}
+    <div class="row" style="gap:8px;margin-top:10px">
+      <button class="btn sm" style="flex:1" onclick="markLeft('${plan.id}')" ${sh.meStatus?'disabled':''}>🚪 Salgo ya</button>
+      <button class="btn sm" style="flex:1" onclick="markArrived('${plan.id}')" ${sh.meStatus==='arrived'?'disabled':''}>📍 He llegado</button>
+    </div>
+    <label class="row" style="margin-top:12px;gap:10px;font-size:13px"><button class="sw ${sh.shareLoc?'on':''}" onclick="toggleLoc('${plan.id}')"></button><span>Avisar automáticamente cuando salga de casa (usa tu ubicación con ATiempo abierto)</span></label>
+    <div class="tiny muted" style="margin-top:10px;line-height:1.5">🔔 Para recibir los avisos aunque la web esté cerrada: instala la app gratuita <b>ntfy</b> y suscríbete al tema <b style="color:var(--txt);user-select:all">${esc(sh.topic)}</b> (o abre <a style="color:var(--accent)" href="${NTFY}/${sh.topic}" target="_blank" rel="noopener">ntfy.sh/${esc(sh.topic)}</a>).</div>`;
+}
+function refreshPeople(planId){
+  if(detailOpen!==planId || !$('#people')) return;
+  const plan=S.plans.find(p=>p.id===planId); $('#people').innerHTML=peopleHTML(plan, computed[planId]);
+}
+function toggleLoc(id){
+  const p=S.plans.find(x=>x.id===id); p.shared.shareLoc=!p.shared.shareLoc; save();
+  if(p.shared.shareLoc) getGPS().then(()=>toast('Avisaré cuando salgas (mientras ATiempo esté abierto)')).catch(()=>toast('Activa el permiso de ubicación'));
+  refreshPeople(id); syncWatch();
+}
+function markLeft(id, auto){
+  const p=S.plans.find(x=>x.id===id); if(!p?.shared || p.shared.meStatus) return;
+  const c=computed[id]; const eta = c ? addMin(new Date(), c.garage+c.travel+c.parkMin) : addMin(new Date(),30);
+  p.shared.meStatus='left'; save();
+  sendData(p,{type:'left', eta:+eta});
+  sendHuman(p, `🚪 ${S.settings.myName||'Alguien'} ha salido${auto?' de casa':''}`, `Llegará a ${p.name} sobre las ${hm(eta)}`);
+  toast(auto?'Has salido: aviso enviado ✓':'Aviso enviado ✓'); refreshPeople(id);
+}
+function markArrived(id, auto){
+  const p=S.plans.find(x=>x.id===id); if(!p?.shared || p.shared.meStatus==='arrived') return;
+  p.shared.meStatus='arrived'; save();
+  sendData(p,{type:'arrived'});
+  sendHuman(p, `📍 ${S.settings.myName||'Alguien'} ya ha llegado`, p.name);
+  if(!auto) toast('Aviso enviado ✓'); refreshPeople(id);
+}
+
+/* Detección de salida con la ubicación (solo con la web abierta) */
+let watchId=null;
+function watchCandidates(){
+  const n=Date.now();
+  return S.plans.filter(p=>{
+    if(!p.shared?.shareLoc || p.shared.meStatus==='arrived') return false;
+    const a=new Date(p.when).getTime(), c=computed[p.id];
+    const start = c ? +c.prep-15*60000 : a-3*3600e3;
+    return n>start && n<a+30*60000;
+  });
+}
+function syncWatch(){
+  if(!navigator.geolocation) return;
+  const cand=watchCandidates();
+  if(!cand.length){ if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; } return; }
+  if(watchId!=null) return;
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    const here={lat:pos.coords.latitude, lon:pos.coords.longitude};
+    for(const p of watchCandidates()){
+      const sh=p.shared;
+      if(!sh.origin){ sh.origin = (S.settings.home && haversine(here,S.settings.home)<400) ? S.settings.home : here; save(); }
+      if(!sh.meStatus && haversine(here, sh.origin)>250) markLeft(p.id, true);
+      if(sh.meStatus==='left' && haversine(here, p.dest)<150) markArrived(p.id, true);
+    }
+  }, ()=>{}, {enableHighAccuracy:true, maximumAge:30000});
+}
+
+/* Invitar */
+function openInvite(planId){
+  const plan=S.plans.find(p=>p.id===planId); if(!plan) return;
+  const needName=!S.settings.myName;
+  $('#sheet').innerHTML = `<div class="row between"><h2 style="margin:0">👥 Invitar a ${esc(plan.name)}</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div>
+    <div class="sub">La otra persona pone desde dónde sale, cómo va y cuánto tarda en prepararse. Le avisaré de su hora de prepararse y salir, y os avisaréis cuando salgáis de casa.</div>
+    ${needName?`<label class="f">Tu nombre (lo verá tu invitado)</label><input class="i" id="invName" placeholder="Mario">`:''}
+    <button class="btn pri" style="width:100%;margin-top:14px" id="invGo">Crear enlace de invitación</button>
+    <div id="invOut"></div>`;
+  openSheet();
+  $('#invGo').onclick=()=>{
+    if(needName){ const n=$('#invName').value.trim(); if(!n) return toast('Pon tu nombre'); S.settings.myName=n; }
+    ensureShared(plan); save();
+    const link=inviteLink(plan);
+    const txt=`${S.settings.myName} te invita: ${plan.name} (${dayName(new Date(plan.when)).toLowerCase()} a las ${hm(new Date(plan.when))}). Ábrelo para saber a qué hora prepararte y salir: ${link}`;
+    $('#invOut').innerHTML = `<div class="linkbox">${esc(link)}</div>
+      <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+        <a class="btn sm pri" href="https://wa.me/?text=${encodeURIComponent(txt)}" target="_blank" rel="noopener">WhatsApp</a>
+        <button class="btn sm" id="invCopy">📋 Copiar</button>
+        ${navigator.share?`<button class="btn sm" id="invShare">Compartir…</button>`:''}
+      </div>`;
+    $('#invCopy').onclick=()=>navigator.clipboard.writeText(txt).then(()=>toast('Copiado ✓')).catch(()=>toast('No se pudo copiar'));
+    $('#invShare')?.addEventListener('click',()=>navigator.share({title:'ATiempo', text:txt}).catch(()=>{}));
+    syncShared(plan); syncSubs();
+  };
+}
+
+/* Unirse a un plan desde un enlace */
+function checkJoin(){
+  const j=new URLSearchParams(location.search).get('j'); if(!j) return;
+  history.replaceState(null,'',location.pathname);
+  let p; try{ p=b64d(j); }catch(e){ return toast('Invitación no válida'); }
+  const ex=S.plans.find(x=>x.shared?.topic===p.t);
+  if(ex) return openDetail(ex.id);
+  openJoin(p);
+}
+function openJoin(p){
+  const st=S.settings, when=new Date(p.w);
+  const f={mode:st.mode, originType:st.home?'home':'gps', shareLoc:true};
+  $('#sheet').innerHTML = `<div class="row between"><h2 style="margin:0">📩 ${p.h?esc(p.h)+' te invita':'Te han invitado'}</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div>
+    <div class="card" style="margin-top:10px"><b>${esc(p.n)}</b><div class="tiny muted">${dayName(when)} · ${hm(when)} · ${esc(p.d.label)}</div></div>
+    <label class="f">Tu nombre</label><input class="i" id="jName" value="${esc(st.myName)}" placeholder="Laura">
+    <label class="f">Sales desde</label><div class="chips" id="jOrigin">
+      <button type="button" class="chip ${f.originType==='home'?'on':''}" data-v="home">🏠 Mi casa</button>
+      <button type="button" class="chip ${f.originType==='gps'?'on':''}" data-v="gps">📍 Donde esté en ese momento</button></div>
+    <div id="jHomeWrap"><label class="f">Tu casa</label><div id="jHome"></div></div>
+    <label class="f">Cómo vas</label><div class="chips" id="jMode">${Object.entries(MODE).map(([k,v])=>`<button type="button" class="chip ${f.mode===k?'on':''}" data-v="${k}">${v.ic} ${v.n}</button>`).join('')}</div>
+    <div class="grid2">
+      <div><label class="f">Tardo en prepararme (min)</label><input class="i" type="number" min="0" id="jPrep" value="${st.prepMin}"></div>
+      <div id="jGarWrap"><label class="f">Casa → garaje (min)</label><input class="i" type="number" min="0" id="jGar" value="${st.garageMin??''}" placeholder="0"></div>
+    </div>
+    <label class="row" style="margin-top:14px;gap:10px;font-size:13px"><button type="button" class="sw on" id="jLoc"></button><span>Avisar a ${p.h?esc(p.h):'los demás'} cuando salga de casa (usa mi ubicación con ATiempo abierto)</span></label>
+    <button class="btn pri" style="width:100%;margin-top:18px" id="jGo">Me apunto</button>`;
+  openSheet();
+  placePicker($('#jHome'), st.home, h=>{ st.home=h; save(); }, false);
+  const single=(sel,key,cb)=>$(sel).querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ $(sel).querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); f[key]=b.dataset.v; cb&&cb(); });
+  const vis=()=>{ $('#jGarWrap').style.display=f.mode==='car'?'block':'none'; };
+  single('#jOrigin','originType'); single('#jMode','mode',vis); vis();
+  $('#jLoc').onclick=e=>{ f.shareLoc=!f.shareLoc; e.currentTarget.classList.toggle('on',f.shareLoc); };
+  $('#jGo').onclick=()=>{
+    const name=$('#jName').value.trim(); if(!name) return toast('Pon tu nombre');
+    if(f.originType==='home' && !st.home) return toast('Elige tu casa o marca “donde esté”');
+    st.myName=name;
+    if(f.mode==='car' && $('#jGar').value!=='') st.garageMin=Math.max(0,+$('#jGar').value||0);
+    const plan={id:uid(), name:p.n, dest:p.d, when:p.w, type:p.ty||'plan', mode:f.mode, originType:f.originType, prepMin:+$('#jPrep').value||0,
+      hasParking:false, manualTravel:'', shared:{topic:p.t, role:'guest', host:p.h, people:{}, shareMe:true, shareLoc:f.shareLoc}};
+    S.plans.push(plan); save();
+    syncShared(plan);
+    sendHuman(plan, `👋 ${name} se apunta a ${p.n}`, 'Abre ATiempo para ver a qué hora sale');
+    closeSheet(); renderAll(); toast('¡Apuntado! ✓');
+    if(f.shareLoc) getGPS().catch(()=>{});
+    setTimeout(()=>openDetail(plan.id), 600);
+  };
+}
+
 /* ---------- Navegación / UI ---------- */
 function go(v){
   document.querySelectorAll('section.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+v));
@@ -869,12 +1154,14 @@ function go(v){
 }
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>go(b.dataset.v));
 function openSheet(){ $('#sheetBg').classList.add('on'); }
-function closeSheet(){ $('#sheetBg').classList.remove('on'); }
+function closeSheet(){ $('#sheetBg').classList.remove('on'); detailOpen=null; }
 let toastT; function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',2600); }
 function renderAll(){ computed={}; renderHoy(); renderRoutines(); renderPlans(); renderSettings(); }
 
 initQuick();
 renderAll();
+checkJoin();
+setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 </script>
