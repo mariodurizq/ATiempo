@@ -1,0 +1,25 @@
+# Festivos Comunidad de Madrid (sin locales). Fuente: BOCM.
+2026-01-01 Año Nuevo
+2026-01-06 Reyes
+2026-04-02 Jueves Santo
+2026-04-03 Viernes Santo
+2026-05-01 Fiesta del Trabajo
+2026-05-02 Fiesta de la Comunidad de Madrid
+2026-08-15 Asunción
+2026-10-12 Fiesta Nacional
+2026-11-02 Todos los Santos (traslado)
+2026-12-07 Constitución (traslado)
+2026-12-08 Inmaculada
+2026-12-25 Navidad
+2027-01-01 Año Nuevo
+2027-01-06 Reyes
+2027-03-19 San José
+2027-03-25 Jueves Santo
+2027-03-26 Viernes Santo
+2027-05-01 Fiesta del Trabajo
+2027-08-16 Asunción (traslado)
+2027-10-12 Fiesta Nacional
+2027-11-01 Todos los Santos
+2027-12-06 Constitución
+2027-12-08 Inmaculada
+2027-12-25 Navidad

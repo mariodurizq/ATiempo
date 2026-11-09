@@ -208,6 +208,9 @@ input.i:focus{border-color:var(--accent)}
         <div><label class="f">Transporte por defecto</label>
           <select class="i" id="sMode"><option value="car">🚗 Coche</option><option value="transit">🚇 Transporte</option><option value="walk">🚶 Andando</option><option value="bike">🚲 Bici</option></select></div>
       </div>
+      <label class="f">🎉 Festivos (las rutinas no cuentan esos días)</label>
+      <div class="chips" id="sHol"><button class="chip" data-v="madrid">Madrid capital</button><button class="chip" data-v="cam">Solo Comunidad de Madrid</button><button class="chip" data-v="off">No tener en cuenta</button></div>
+      <div class="tiny muted" style="margin-top:6px">Los festivos locales dependen del municipio donde trabajas. Madrid capital = 14 días (incluye San Isidro y la Almudena).</div>
       <label class="f">Prudencia con el tráfico</label>
       <div class="chips" id="sRisk">
         <button class="chip" data-v="0.9">Optimista</button><button class="chip" data-v="1">Normal</button><button class="chip" data-v="1.15">Prudente</button>
@@ -256,7 +259,7 @@ const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 
 /* ---------- Estado ---------- */
 const DEFAULT = {
-  settings:{prepMin:45, bufferMin:5, wakeMin:10, mode:'car', risk:1, notif:false, home:null, garageMin:null, myName:''},
+  settings:{prepMin:45, bufferMin:5, wakeMin:10, mode:'car', risk:1, notif:false, home:null, garageMin:null, myName:'', holidays:'madrid'},
   routines:[], plans:[]
 };
 let S;
@@ -456,6 +459,21 @@ async function compute(inst){
   return {garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
 }
 
+/* ---------- Festivos (Madrid) ---------- */
+const HOLIDAYS = {
+  cam:{'2026-01-01':'Año Nuevo','2026-01-06':'Reyes','2026-04-02':'Jueves Santo','2026-04-03':'Viernes Santo','2026-05-01':'Fiesta del Trabajo','2026-05-02':'Fiesta de la Comunidad','2026-08-15':'Asunción','2026-10-12':'Fiesta Nacional','2026-11-02':'Todos los Santos','2026-12-07':'Constitución','2026-12-08':'Inmaculada','2026-12-25':'Navidad',
+       '2027-01-01':'Año Nuevo','2027-01-06':'Reyes','2027-03-19':'San José','2027-03-25':'Jueves Santo','2027-03-26':'Viernes Santo','2027-05-01':'Fiesta del Trabajo','2027-08-16':'Asunción','2027-10-12':'Fiesta Nacional','2027-11-01':'Todos los Santos','2027-12-06':'Constitución','2027-12-08':'Inmaculada','2027-12-25':'Navidad'},
+  madrid:{'2026-05-15':'San Isidro','2026-11-09':'La Almudena','2027-05-15':'San Isidro','2027-11-09':'La Almudena'}
+};
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+function holidayName(d){
+  const sc = S.settings.holidays || 'madrid';
+  if(sc==='off') return null;
+  const k = ymd(d);
+  return HOLIDAYS.cam[k] || (sc==='madrid' ? HOLIDAYS.madrid[k] : null) || null;
+}
+const FESTIVOS_URL = () => appURL() + (S.settings.holidays==='cam' ? 'festivos-cam.txt' : 'festivos.txt');
+
 /* ---------- Instancias (rutinas + planes) ---------- */
 function instancesNext(days=7){
   const now=new Date(), out=[];
@@ -466,7 +484,8 @@ function instancesNext(days=7){
       const [h,m]=r.time.split(':').map(Number);
       const arrive=new Date(day); arrive.setHours(h,m,0,0);
       if(arrive<now) continue;
-      out.push({...r, kind:'routine', srcId:r.id, arrive, key:r.id+'@'+arrive.toISOString().slice(0,10)});
+      const hol = holidayName(day);
+      out.push({...r, kind:'routine', srcId:r.id, arrive, holiday:hol, key:r.id+'@'+ymd(day)});
     }
   }
   const lim = addMin(now, days*1440);
@@ -553,7 +572,7 @@ async function renderHoy(){
   renderAsk();
   if(!S.settings.home){
     $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px"><b>👋 Empieza por aquí</b><div class="sub" style="margin:6px 0 12px">Dime dónde vives y crea tu primera rutina (p. ej. ir a trabajar) para ver a qué hora levantarte.</div><button class="btn pri" onclick="go('ajustes')">Configurar mi casa</button></div>`;
-  } else if(!list.length){
+  } else if(!list.some(i=>!i.holiday)){
     $('#nextBox').innerHTML = `<div class="card empty" style="margin-top:12px">No tienes nada en los próximos 7 días.<div style="margin-top:12px" class="row" ><button class="btn sm" style="margin:auto" onclick="openForm('routine')">⏰ Crear rutina</button></div></div>`;
   } else {
     $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px"><span class="spin"></span> <span class="muted">Comprobando ruta…</span></div>`;
@@ -566,6 +585,7 @@ async function renderHoy(){
     for(const i of list){
       const dn = dayName(i.arrive);
       if(dn!==lastDay){ html+=`<div class="daylabel">${dn}</div>`; lastDay=dn; }
+      if(i.holiday){ html+=`<div class="card item" style="opacity:.6"><div class="when"><b>🎉</b><span>festivo</span></div><div class="what"><div class="n">${esc(i.name)} · ${esc(i.holiday)}</div><div class="tiny muted">Festivo en Madrid: esta rutina no cuenta (sin alarma)</div></div></div>`; continue; }
       html+=`<div class="card item" data-key="${esc(i.key)}" onclick="openDetail('${esc(i.key)}')">
         <div class="when"><b>${hm(i.arrive)}</b><span>llegar</span></div>
         <div class="what"><div class="n">${i.kind==='routine'?'⏰':(i.type==='reserva'?'🍽️':'📍')} ${esc(i.name||i.dest.label)}</div>
@@ -575,6 +595,7 @@ async function renderHoy(){
   }
   let first=true;
   for(const i of list){
+    if(i.holiday) continue;
     try{
       const c = await compute(i);
       computed[i.key]=c;
@@ -692,7 +713,7 @@ function delItem(kind,id){
 
 /* ---------- Detalle (con parkings cercanos y enlaces) ---------- */
 async function openDetail(key){
-  const inst = instancesNext(60).find(i=>i.key===key); if(!inst) return;
+  const inst = instancesNext(60).find(i=>i.key===key && !i.holiday); if(!inst) return;
   $('#sheet').innerHTML = `<div class="row between"><h2 style="margin:0">${esc(inst.name)}</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div><div class="sub">${dayName(inst.arrive)} · llegar a las ${hm(inst.arrive)}</div><div id="dBody"><div style="padding:20px"><span class="spin"></span></div></div>`;
   openSheet();
   try{
@@ -753,9 +774,9 @@ function renderRoutines(){
   // calcula hora de despertar del próximo día que toque
   S.routines.forEach(async r=>{
     const now=new Date();
-    for(let i=0;i<8;i++){
+    for(let i=0;i<14;i++){
       const day=new Date(now.getFullYear(),now.getMonth(),now.getDate()+i);
-      if(!r.days.includes(day.getDay())) continue;
+      if(!r.days.includes(day.getDay()) || holidayName(day)) continue;
       const [h,m]=r.time.split(':').map(Number); const arrive=new Date(day); arrive.setHours(h,m,0,0);
       if(arrive<now) continue;
       try{ const c=await compute({...r,arrive}); const el=document.querySelector(`[data-rw="${r.id}"]`);
@@ -810,6 +831,7 @@ function renderSettings(){
   $('#sPrep').value=st.prepMin; $('#sBuffer').value=st.bufferMin; $('#sWake').value=st.wakeMin; $('#sMode').value=st.mode;
   $('#sRisk').querySelectorAll('.chip').forEach(b=>{ b.classList.toggle('on', +b.dataset.v===st.risk); b.onclick=()=>{ st.risk=+b.dataset.v; save(); renderSettings(); renderAll(true); }; });
   $('#sNotif').classList.toggle('on', st.notif);
+  $('#sHol').querySelectorAll('.chip').forEach(b=>{ b.classList.toggle('on', b.dataset.v===(st.holidays||'madrid')); b.onclick=()=>{ st.holidays=b.dataset.v; save(); renderAll(); }; });
   $('#sGarage').value = st.garageMin??''; $('#sName').value = st.myName||'';
 }
 ['sPrep','sBuffer','sWake'].forEach(id=>document.getElementById(id).onchange=e=>{
@@ -882,7 +904,11 @@ async function exportICS(onlyId){
         const day=new Date(now); day.setDate(now.getDate()+((dd-now.getDay()+7)%7||7));
         const [h,m]=r.time.split(':').map(Number); day.setHours(h,m,0,0);
         const c=await compute({...r,arrive:day,originType:'home'});
-        ev(c, `${r.id}-${dd}`, `RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[dd]}`);
+        const st0=c.prep.getHours()<11?c.wake:c.prep;
+        const ex=[...Object.keys(HOLIDAYS.cam),...(S.settings.holidays==='madrid'?Object.keys(HOLIDAYS.madrid):[])]
+          .filter(k=>S.settings.holidays!=='off').map(k=>new Date(k+'T12:00')).filter(d=>d.getDay()===dd && d>now)
+          .map(d=>{ d.setHours(st0.getHours(),st0.getMinutes(),0,0); return icsDate(d); });
+        ev(c, `${r.id}-${dd}`, `RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[dd]}`+(ex.length?`\r\nEXDATE:${ex.join(',')}`:''));
       }
     }
     for(const p of S.plans.filter(p=>(!onlyId||p.id===onlyId) && new Date(p.when)>now)){
@@ -1163,6 +1189,11 @@ function alarmTimes(c, cfg){
   const out=[]; for(let k=0;k<n;k++){ const t=addMin(start, Math.round(span*k/(n-1))); if(!out.some(x=>hm(x)===hm(t))) out.push(t); }
   return out;
 }
+function nextHolidayTxt(){
+  const n=new Date();
+  for(let i=1;i<400;i++){ const d=new Date(n.getFullYear(),n.getMonth(),n.getDate()+i); if(d.getDay()===0||d.getDay()===6) continue; const h=holidayName(d); if(h) return `${d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'})} (${h})`; }
+  return '—';
+}
 const REFTXT = {wake:'despertarte', prep:'empezar a prepararte', leave:'salir'};
 async function openAlarms(key){
   let c = computed[key];
@@ -1196,7 +1227,31 @@ async function openAlarms(key){
         <div class="chips">${ts.map(t=>`<a class="btn pri" style="text-decoration:none" href="intent:#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${t.getHours()};i.android.intent.extra.alarm.MINUTES=${t.getMinutes()};S.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};B.android.intent.extra.alarm.SKIP_UI=true;B.android.intent.extra.alarm.VIBRATE=true;end">⏰ ${hm(t)}</a>`).join('')}</div>`;
     } else {
       const text = ts.map(t=>hm(t)).join('\n');
-      $('#aGo').innerHTML = `<a class="btn pri" style="display:block;text-align:center;text-decoration:none" href="shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT)}&input=text&text=${encodeURIComponent(text)}">Crear ${ts.length} alarma${ts.length>1?'s':''} en el iPhone</a>
+      const isR = c.inst.kind==='routine';
+      const days = isR ? DAYS.filter(d=>c.inst.days.includes(d.d)).map(d=>d.l).join(' ') : '';
+      const scName = isR ? SHORTCUT+' LV' : SHORTCUT;
+      $('#aGo').innerHTML = `${isR?`<div class="card" style="margin-bottom:10px;border-color:#2b4a46"><b>🔁 Se repetirán ${esc(days)}</b><div class="tiny muted" style="margin-top:4px">Y no sonarán en festivos de ${S.settings.holidays==='cam'?'la Comunidad de Madrid':'Madrid'} gracias a la automatización “ATiempo Festivos” (ver abajo). Próximo festivo laborable: ${esc(nextHolidayTxt())}.</div></div>`:''}
+        <a class="btn pri" style="display:block;text-align:center;text-decoration:none" href="shortcuts://run-shortcut?name=${encodeURIComponent(scName)}&input=text&text=${encodeURIComponent(text)}">Crear ${ts.length} alarma${ts.length>1?'s':''} ${isR?'que se repiten':''} en el iPhone</a>
+        ${isR?`<details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Una vez: atajo “${SHORTCUT} LV” (repetir ${esc(days)})</summary>
+        <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
+          <li>En Atajos, mantén pulsado <b>${SHORTCUT}</b> → <b>Duplicar</b>.</li>
+          <li>Abre la copia y renómbrala exactamente <b style="color:var(--txt)">${SHORTCUT} LV</b>.</li>
+          <li>En “Crear una alarma” toca la flecha <b>›</b> → <b>Repetir</b> → marca <b>${esc(days)}</b>. Pulsa OK.</li>
+          <li>Si no te sale “Repetir”, crea las alarmas y luego en <b>Reloj</b> edita cada alarma “ATiempo” → Repetir → ${esc(days)}.</li>
+        </ol></details>
+        <details style="margin-top:8px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Una vez: automatización “ATiempo Festivos” (que no suene en festivos)</summary>
+        <div class="tiny muted" style="margin:6px 0">Cada noche mira si mañana es festivo: si lo es, apaga tus alarmas “ATiempo”; si no, las enciende.</div>
+        <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
+          <li>Atajos → pestaña <b>Automatización</b> → <b>+</b> → <b>Hora del día</b> → <b>21:00</b>, <b>Diariamente</b> → marca <b>Ejecutar inmediatamente</b> → Siguiente → <b>Nuevo atajo en blanco</b>.</li>
+          <li><b>Obtener contenido de URL</b> → pega: <span class="linkbox" style="display:block;user-select:all">${esc(FESTIVOS_URL())}</span></li>
+          <li><b>Ajustar fecha</b> → <b>Añadir 1 días</b> a <b>Fecha actual</b>.</li>
+          <li><b>Formatear fecha</b> → Fecha ajustada → Formato <b>Personalizado</b> → escribe <b style="color:var(--txt)">yyyy-MM-dd</b>.</li>
+          <li><b>Obtener todas las alarmas</b>.</li>
+          <li><b>Repetir con cada</b> ítem en <b>Alarmas</b>.</li>
+          <li>Dentro: <b>Si</b> → toca la condición: <b>Ítem de repetición</b> → toca encima y elige <b>Etiqueta</b> → <b>contiene</b> → escribe <b>ATiempo</b>.</li>
+          <li>Dentro de ese Si: otro <b>Si</b> → <b>Contenido de URL</b> <b>contiene</b> → variable <b>Fecha formateada</b>.</li>
+          <li>Dentro del segundo Si: <b>Activar/desactivar alarma</b> → <b>Desactivar</b> → Ítem de repetición. En su <b>De lo contrario</b>: otra igual pero <b>Activar</b>.</li>
+        </ol></details>`:''}
         <details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Primera vez: crea el atajo “${SHORTCUT}” (3 acciones)</summary>
         <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
           <li>App <b>Atajos</b> → pestaña <b>Atajos</b> → <b>+</b> (arriba a la derecha).</li>
@@ -1231,7 +1286,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v6 · alarmas';
+const APP_VERSION = 'v7 · festivos';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
