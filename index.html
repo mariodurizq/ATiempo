@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ATiempo · ¿A qué hora salgo?</title>
+<meta name="theme-color" content="#0b0b10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ATiempo">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0b10; --card:#17171f; --card2:#1f1f29; --line:#2a2a36; --txt:#f4f4f7; --mut:#9a9aab;
+  --sleep1:#0e1a3d; --sleep2:#1b2b63; --ready1:#3a2a14; --ready2:#2a1e10; --ready:#f2a33a;
+  --drive:#22c55e; --amber:#f59e0b; --red:#ef4444; --park:#a78bfa; --accent:#f2a33a; --green:#34d399;
+  --r:18px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font-family:Inter,system-ui,-apple-system,sans-serif}
+body{padding:env(safe-area-inset-top) 0 calc(78px + env(safe-area-inset-bottom));min-height:100vh}
+button,input,select{font:inherit;color:inherit}
+.wrap{max-width:560px;margin:0 auto;padding:14px 16px}
+h1{font-size:30px;font-weight:800;margin:6px 0 2px;letter-spacing:-.02em}
+h2{font-size:18px;margin:22px 0 10px;font-weight:700}
+.sub{color:var(--mut);font-size:14px}
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.btn{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:11px 14px;cursor:pointer;font-weight:600}
+.btn.pri{background:var(--accent);color:#1a1205;border:none}
+.btn.sm{padding:7px 11px;font-size:13px;border-radius:11px}
+.btn.ghost{background:transparent}
+.btn.danger{color:#fca5a5;border-color:#4b1f1f}
+.plus{width:38px;height:38px;border-radius:50%;background:var(--card2);border:none;color:var(--accent);font-size:24px;cursor:pointer;line-height:1}
+.card{background:var(--card);border-radius:var(--r);padding:14px;border:1px solid #20202a}
+.list>*+*{margin-top:10px}
+.pill{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border-radius:999px;padding:5px 10px;font-size:12px;color:var(--mut)}
+.badge{background:var(--green);color:#052e1b;font-weight:800;border-radius:12px;padding:4px 9px;font-size:14px}
+.badge.warn{background:var(--amber);color:#3a2300}
+.muted{color:var(--mut)}
+.tiny{font-size:12px}
+
+/* Tabs */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(14,14,20,.92);backdrop-filter:blur(14px);border-top:1px solid #1f1f29;display:flex;justify-content:center;padding:8px 6px calc(8px + env(safe-area-inset-bottom));z-index:20}
+nav.tabs .in{display:flex;max-width:560px;width:100%;justify-content:space-around}
+nav.tabs button{background:none;border:none;color:var(--mut);display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:4px 10px;cursor:pointer}
+nav.tabs button .ic{font-size:21px;filter:grayscale(1);opacity:.7}
+nav.tabs button.on{color:var(--txt)}
+nav.tabs button.on .ic{filter:none;opacity:1}
+section.view{display:none}
+section.view.on{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* Alarm list (como el vídeo) */
+.alarm{background:var(--card);border-radius:var(--r);padding:14px 16px;cursor:pointer;border:1px solid #20202a}
+.alarm .t{font-size:40px;font-weight:300;letter-spacing:-.02em;line-height:1}
+.alarm .t small{font-size:18px;margin-left:4px}
+.alarm.off{opacity:.45}
+.alarm .goal{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:14px;display:flex;gap:8px;align-items:center}
+.sw{width:50px;height:30px;border-radius:999px;background:#3a3a46;position:relative;border:none;cursor:pointer;flex:none;transition:.2s}
+.sw:after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw.on{background:var(--green)}
+.sw.on:after{left:23px}
+
+/* Timeline */
+.tl{display:grid;grid-template-columns:44px 1fr;gap:0 8px;margin-top:6px}
+.tl .axis{position:relative}
+.tl .axis span{position:absolute;right:0;font-size:10px;color:#6b6b7b;transform:translateY(-50%)}
+.tl .blocks{display:flex;flex-direction:column;gap:5px}
+.blk{border-radius:16px;padding:10px 12px;position:relative;overflow:hidden;min-height:46px;display:flex;flex-direction:column;justify-content:space-between}
+.blk .h{display:flex;justify-content:space-between;font-size:13px;font-weight:600;align-items:center;gap:8px;position:relative;z-index:1}
+.blk .big{font-size:42px;font-weight:300;letter-spacing:-.02em;line-height:1.05;position:relative;z-index:1}
+.blk .big small{font-size:18px;margin-left:4px}
+.blk .foot{font-size:12px;color:#cfcfe0;position:relative;z-index:1}
+.b-sleep{background:linear-gradient(180deg,var(--sleep1),var(--sleep2))}
+.b-ready{background:linear-gradient(180deg,var(--ready1),var(--ready2))}
+.b-ready .h{color:var(--ready)}
+.b-drive{background:#1b1d22;justify-content:flex-start;gap:4px;padding-bottom:54px}
+.b-drive svg{position:absolute;left:0;right:0;bottom:6px;width:100%;height:46px}
+.b-park{background:#211b33}
+.b-park .h{color:var(--park)}
+.b-dest{background:var(--card2);min-height:0;padding:10px 12px;font-size:13px;font-weight:600;flex-direction:row;align-items:center;gap:8px}
+.msg{font-size:15px;font-weight:600;position:relative;z-index:1}
+.msg span{display:block;font-weight:400;color:#c9d2ff;font-size:13px}
+
+/* Lock-screen style widget */
+.widget{background:linear-gradient(160deg,#1d2140,#2a2340 60%,#3b2a3f);border-radius:22px;padding:16px;margin-top:12px}
+.widget .k{font-size:20px;font-weight:700}
+.widget .k b{color:var(--green)}
+.widget svg{width:100%;height:28px;margin:8px 0 4px}
+
+/* Forms / sheet */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;display:none;align-items:flex-end;justify-content:center}
+.sheet-bg.on{display:flex}
+.sheet{background:#121219;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:22px 22px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));animation:up .25s ease}
+@keyframes up{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+label.f{display:block;margin:12px 0 6px;font-size:13px;color:var(--mut);font-weight:600}
+input.i,select.i{width:100%;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px;outline:none}
+input.i:focus{border-color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--card2);border-radius:999px;padding:8px 12px;cursor:pointer;font-size:14px;font-weight:600}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#1a1205}
+.sugg{background:var(--card2);border:1px solid var(--line);border-radius:12px;margin-top:6px;overflow:hidden}
+.sugg div{padding:10px 12px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--line)}
+.sugg div:last-child{border-bottom:none}
+.sugg div:hover{background:#2a2a36}
+.chosen{margin-top:6px;font-size:13px;color:var(--green)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#2a2a36;padding:10px 16px;border-radius:12px;font-size:14px;z-index:60;display:none;max-width:90%}
+.empty{text-align:center;padding:26px 10px;color:var(--mut)}
+.kv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.kv:last-child{border:none}
+.links{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.links a{color:var(--txt);text-decoration:none}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid #555;border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.daylabel{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:16px 0 6px;font-weight:700}
+.item{display:flex;gap:12px;align-items:center;cursor:pointer}
+.item .when{min-width:58px;text-align:center}
+.item .when b{display:block;font-size:20px}
+.item .when span{font-size:11px;color:var(--mut)}
+.item .what{flex:1;min-width:0}
+.item .what .n{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+
+<!-- ============ HOY ============ -->
+<section class="view on" id="v-hoy">
+  <div class="wrap">
+    <div class="row between">
+      <div>
+        <div class="sub" id="todayStr"></div>
+        <h1>ATiempo</h1>
+      </div>
+      <button class="plus" onclick="openForm('plan')" title="Nuevo plan">+</button>
+    </div>
+    <div id="nextBox"></div>
+
+    <h2>¿Cuándo salgo?</h2>
+    <div class="card">
+      <div id="quickPlace"></div>
+      <div class="grid2" style="margin-top:10px">
+        <div><label class="f" style="margin-top:0">Llegar a las</label><input class="i" type="datetime-local" id="qWhen"></div>
+        <div><label class="f" style="margin-top:0">Cómo voy</label>
+          <select class="i" id="qMode"><option value="car">🚗 Coche</option><option value="transit">🚇 Transporte</option><option value="walk">🚶 Andando</option><option value="bike">🚲 Bici</option></select></div>
+      </div>
+      <div class="row" style="margin-top:12px;gap:8px">
+        <button class="btn pri" style="flex:1" onclick="quickCalc()">Calcular desde aquí</button>
+        <button class="btn" onclick="quickSave()">Guardar</button>
+      </div>
+      <div id="quickOut"></div>
+    </div>
+
+    <h2>Próximos 7 días</h2>
+    <div id="upcoming"></div>
+  </div>
+</section>
+
+<!-- ============ ALARMAS / RUTINAS ============ -->
+<section class="view" id="v-rutinas">
+  <div class="wrap">
+    <div class="row between"><h1>Rutinas</h1><button class="plus" onclick="openForm('routine')">+</button></div>
+    <div class="sub">Automatizaciones: p. ej. “Estar en el trabajo a las 9:00” de lunes a viernes. ATiempo calcula a qué hora despertarte según el tráfico típico de esa hora.</div>
+    <div class="list" id="routineList" style="margin-top:14px"></div>
+  </div>
+</section>
+
+<!-- ============ PLANES / RESERVAS ============ -->
+<section class="view" id="v-planes">
+  <div class="wrap">
+    <div class="row between"><h1>Planes</h1><button class="plus" onclick="openForm('plan')">+</button></div>
+    <div class="sub">Reservas y planes puntuales. Te dice cuánto tardas desde tu ubicación y cuánto se suele tardar en aparcar allí.</div>
+    <div class="list" id="planList" style="margin-top:14px"></div>
+  </div>
+</section>
+
+<!-- ============ AJUSTES ============ -->
+<section class="view" id="v-ajustes">
+  <div class="wrap">
+    <h1>Ajustes</h1>
+    <div class="card">
+      <label class="f" style="margin-top:0">🏠 Mi casa (punto de salida por defecto)</label>
+      <div id="homePlace"></div>
+      <button class="btn sm" style="margin-top:8px" onclick="homeFromGPS()">📍 Usar mi ubicación actual como casa</button>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="grid2">
+        <div><label class="f" style="margin-top:0">Tiempo en prepararme (min)</label><input class="i" type="number" min="0" id="sPrep"></div>
+        <div><label class="f" style="margin-top:0">Margen al llegar (min)</label><input class="i" type="number" min="0" id="sBuffer"></div>
+        <div><label class="f">Despertar antes de prepararme (min)</label><input class="i" type="number" min="0" id="sWake"></div>
+        <div><label class="f">Transporte por defecto</label>
+          <select class="i" id="sMode"><option value="car">🚗 Coche</option><option value="transit">🚇 Transporte</option><option value="walk">🚶 Andando</option><option value="bike">🚲 Bici</option></select></div>
+      </div>
+      <label class="f">Prudencia con el tráfico</label>
+      <div class="chips" id="sRisk">
+        <button class="chip" data-v="0.9">Optimista</button><button class="chip" data-v="1">Normal</button><button class="chip" data-v="1.15">Prudente</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="row between"><div><b>Avisos</b><div class="tiny muted">Te avisa al empezar a prepararte y al salir (con la app abierta o instalada).</div></div><button class="sw" id="sNotif"></button></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <b>Alarmas en el calendario del móvil</b>
+      <div class="tiny muted" style="margin:4px 0 10px">Descarga un .ics con tus rutinas y planes: cada evento lleva avisos a la hora de despertar, de prepararte y de salir. En iPhone/Android se añade al calendario y suena aunque la web esté cerrada.</div>
+      <button class="btn pri" onclick="exportICS()">📅 Exportar al calendario</button>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <b>Copia de seguridad</b>
+      <div class="row" style="margin-top:10px;gap:8px">
+        <button class="btn sm" onclick="exportJSON()">⬇️ Exportar datos</button>
+        <label class="btn sm">⬆️ Importar<input type="file" accept=".json" hidden onchange="importJSON(this)"></label>
+      </div>
+    </div>
+    <p class="tiny muted" style="margin-top:18px;line-height:1.5">Rutas: OpenStreetMap (OSRM) · Direcciones: Photon/Nominatim · Parkings: Overpass. Todo gratis y sin claves. El tráfico se estima con patrones típicos de Madrid por día y hora; para tráfico en vivo, abre la ruta en Waze o Google Maps desde cada plan. Tus datos se guardan solo en este dispositivo.</p>
+  </div>
+</section>
+
+<nav class="tabs"><div class="in">
+  <button data-v="hoy" class="on"><span class="ic">🌅</span>Hoy</button>
+  <button data-v="rutinas"><span class="ic">⏰</span>Rutinas</button>
+  <button data-v="planes"><span class="ic">📍</span>Planes</button>
+  <button data-v="ajustes"><span class="ic">⚙️</span>Ajustes</button>
+</div></nav>
+
+<div class="sheet-bg" id="sheetBg" onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   ATiempo — ¿a qué hora me levanto / salgo?
+   ========================================================= */
+const MADRID_SOL = {lat:40.4169, lon:-3.7035};
+const DAYS = [{d:1,l:'L'},{d:2,l:'M'},{d:3,l:'X'},{d:4,l:'J'},{d:5,l:'V'},{d:6,l:'S'},{d:0,l:'D'}];
+const MODE = {car:{ic:'🚗',n:'Coche'},transit:{ic:'🚇',n:'Transporte'},walk:{ic:'🚶',n:'Andando'},bike:{ic:'🚲',n:'Bici'}};
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2,10);
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- Estado ---------- */
+const DEFAULT = {
+  settings:{prepMin:45, bufferMin:5, wakeMin:10, mode:'car', risk:1, notif:false, home:null},
+  routines:[], plans:[]
+};
+let S;
+function load(){
+  try{ S = JSON.parse(localStorage.getItem('atiempo.v1')) || null; }catch(e){ S=null; }
+  if(!S) S = structuredClone(DEFAULT);
+  S.settings = Object.assign({}, DEFAULT.settings, S.settings||{});
+  S.routines ||= []; S.plans ||= [];
+}
+function save(){ try{ localStorage.setItem('atiempo.v1', JSON.stringify(S)); }catch(e){} }
+load();
+
+/* ---------- Utilidades de tiempo ---------- */
+const pad = n => String(n).padStart(2,'0');
+const hm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const addMin = (d,m) => new Date(d.getTime()+m*60000);
+const dur = m => { m=Math.round(m); if(Math.abs(m)<60) return `${m} min`; const h=Math.floor(Math.abs(m)/60), r=Math.abs(m)%60; return `${m<0?'-':''}${h} h${r?` ${r} min`:''}`; };
+const sameDay = (a,b) => a.toDateString()===b.toDateString();
+function dayName(d){
+  const t=new Date(); const tm=addMin(t,1440);
+  if(sameDay(d,t)) return 'Hoy';
+  if(sameDay(d,tm)) return 'Mañana';
+  return d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'short'});
+}
+function toLocalInput(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${hm(d)}`; }
+function haversine(a,b){
+  const R=6371000, t=x=>x*Math.PI/180;
+  const dLa=t(b.lat-a.lat), dLo=t(b.lon-a.lon);
+  const h=Math.sin(dLa/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+/* ---------- Geocodificación (gratis) ---------- */
+function fmtPhoton(p){
+  const street = p.street ? `${p.street}${p.housenumber?' '+p.housenumber:''}` : '';
+  const parts = [p.name, street, p.city||p.town||p.village||p.county].filter(Boolean);
+  return [...new Set(parts)].join(', ');
+}
+async function geocode(q){
+  try{
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=40.4168&lon=-3.7038&limit=6`);
+    const j = await r.json();
+    const out = j.features.map(f=>({lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], label:fmtPhoton(f.properties)}));
+    if(out.length) return out;
+  }catch(e){}
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&countrycodes=es&limit=6&accept-language=es`);
+  const j = await r.json();
+  return j.map(x=>({lat:+x.lat, lon:+x.lon, label:x.display_name.split(',').slice(0,3).join(',')}));
+}
+async function reverseGeo(lat,lon){
+  try{
+    const r = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`);
+    const j = await r.json(); if(j.features?.[0]) return fmtPhoton(j.features[0].properties);
+  }catch(e){}
+  return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+}
+
+/* ---------- GPS ---------- */
+let gpsCache=null;
+function getGPS(){
+  if(gpsCache && Date.now()-gpsCache.t < 5*60000) return Promise.resolve(gpsCache.p);
+  return new Promise((res,rej)=>{
+    if(!navigator.geolocation) return rej(new Error('Sin GPS'));
+    navigator.geolocation.getCurrentPosition(
+      pos=>{ const p={lat:pos.coords.latitude, lon:pos.coords.longitude, label:'Tu ubicación'}; gpsCache={t:Date.now(),p}; res(p); },
+      err=>rej(err), {enableHighAccuracy:true, timeout:10000, maximumAge:120000});
+  });
+}
+
+/* ---------- Rutas (OSRM, gratis) ---------- */
+const ROUTERS = {
+  car:['https://routing.openstreetmap.de/routed-car/route/v1/driving/','https://router.project-osrm.org/route/v1/driving/'],
+  walk:['https://routing.openstreetmap.de/routed-foot/route/v1/foot/'],
+  bike:['https://routing.openstreetmap.de/routed-bike/route/v1/bike/']
+};
+let routeCache = {};
+try{ routeCache = JSON.parse(localStorage.getItem('atiempo.routes')||'{}'); }catch(e){}
+async function route(mode,o,d){
+  const m = mode==='transit' ? 'car' : mode;
+  const key = `${m}|${o.lat.toFixed(3)},${o.lon.toFixed(3)}|${d.lat.toFixed(3)},${d.lon.toFixed(3)}`;
+  const c = routeCache[key];
+  if(c && Date.now()-c.t < 14*864e5) return c;
+  for(const base of ROUTERS[m]){
+    try{
+      const r = await fetch(`${base}${o.lon},${o.lat};${d.lon},${d.lat}?overview=false`);
+      const j = await r.json();
+      if(j.routes?.[0]){
+        const res = {sec:j.routes[0].duration, m:j.routes[0].distance, t:Date.now(), src:'osm'};
+        routeCache[key]=res; try{ localStorage.setItem('atiempo.routes', JSON.stringify(routeCache)); }catch(e){}
+        return res;
+      }
+    }catch(e){}
+  }
+  // Estimación sin red
+  const dist = haversine(o,d)*1.35, speed = {car:30, walk:4.8, bike:15}[m];
+  return {sec: dist/1000/speed*3600, m:dist, src:'est'};
+}
+
+/* ---------- Tráfico típico en Madrid (factor por día y hora) ---------- */
+function trafficFactor(date){
+  const day=date.getDay(), h=date.getHours()+date.getMinutes()/60;
+  if(h<6 || h>=22.5) return 0.9;
+  if(day>=1 && day<=5){
+    if(h>=7.5 && h<9.5) return 1.5;          // hora punta mañana
+    if(h>=7 && h<7.5) return 1.25;
+    if(h>=9.5 && h<10.5) return 1.2;
+    if(day===5 && h>=14 && h<16.5) return 1.35; // salida del viernes
+    if(h>=13.75 && h<15.5) return 1.2;
+    if(h>=17 && h<20) return 1.4;            // hora punta tarde
+    if(h>=20 && h<21) return 1.15;
+    return 1.05;
+  }
+  if(day===6 && h>=11 && h<14) return 1.15;
+  if(day===0 && h>=18 && h<22) return 1.25;   // operación retorno domingo
+  return 1.0;
+}
+function trafficLevel(f){ return f>=1.35?'red':f>=1.15?'amber':'green'; }
+
+/* ---------- Aparcamiento: estimación por zona y hora ---------- */
+function parkingEstimate(dest, date, hasParking){
+  if(hasParking) return {min:2, zone:'Plaza propia', note:'Tienes plaza: solo entrar y aparcar.'};
+  const km = haversine(dest, MADRID_SOL)/1000;
+  const inMadrid = km < 16;
+  let base, zone, note='';
+  if(!inMadrid){ base=4; zone='Fuera de Madrid capital'; note='Normalmente fácil y gratis.'; }
+  else if(km<1.6){ base=20; zone='Centro (ZBE Distrito Centro)'; note='Acceso restringido a no residentes: mejor ir directo a un parking público.'; }
+  else if(km<4.5){ base=12; zone='Interior M-30 (zona SER)'; note='Zona SER de pago L-V 9–21 h y S 9–15 h.'; }
+  else if(km<9){ base=7; zone='Exterior M-30'; note='Puede haber zona SER en algunos barrios.'; }
+  else { base=4; zone='Periferia de Madrid'; note='Normalmente fácil.'; }
+  const day=date.getDay(), h=date.getHours()+date.getMinutes()/60;
+  let f=1;
+  if((day===5||day===6) && (h>=20 || h<1.5)) f=1.5;          // noches de viernes y sábado
+  else if(day>=1&&day<=5 && h>=9 && h<14 && km<4.5) f=1.2;   // laborables mañana en SER
+  else if(day>=1&&day<=5 && h>=19 && h<23 && km<4.5) f=1.35; // residentes volviendo a casa
+  else if(day===0 && h<14) f=0.7;
+  else if(h>=1.5 && h<7) f=0.6;
+  return {min:Math.round(base*f), zone, note};
+}
+async function nearbyParkings(dest){
+  const q = `[out:json][timeout:15];nwr(around:800,${dest.lat},${dest.lon})[amenity=parking][access!~"private|customers|no"][parking~"underground|multi-storey"];out center 12;`;
+  const r = await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+  const j = await r.json();
+  return j.elements.map(e=>{
+    const p={lat:e.lat??e.center?.lat, lon:e.lon??e.center?.lon};
+    const m=haversine(p,dest);
+    return {...p, name:e.tags?.name||'Parking público', fee:e.tags?.fee, m, walk:Math.max(1,Math.round(m*1.3/80))};
+  }).filter(p=>p.lat).sort((a,b)=>a.m-b.m).slice(0,4);
+}
+
+/* ---------- Cálculo principal ---------- */
+async function originFor(inst){
+  if(inst.originType==='gps'){
+    try{ return await getGPS(); }catch(e){ if(S.settings.home) return {...S.settings.home, fallback:true}; throw new Error('No tengo tu ubicación ni tu casa configurada'); }
+  }
+  if(!S.settings.home) throw new Error('Configura tu casa en Ajustes');
+  return S.settings.home;
+}
+async function compute(inst){
+  const st=S.settings;
+  const arrive = inst.arrive;
+  const origin = await originFor(inst);
+  const r = await route(inst.mode, origin, inst.dest);
+  const baseMin = r.sec/60;
+  const km = r.m/1000;
+  let travel, tf=1, worst, park=null;
+  const guessDep = addMin(arrive, -(baseMin*1.4+15));
+  if(inst.manualTravel){ travel = +inst.manualTravel; worst = travel; }
+  else if(inst.mode==='car'){
+    tf = trafficFactor(guessDep) * st.risk;
+    travel = Math.round(baseMin*1.1*tf + 2);
+    worst = Math.round(baseMin*1.1*Math.max(1.5,tf)*st.risk + 2);
+  } else if(inst.mode==='transit'){
+    const h=guessDep.getHours(), off = (guessDep.getDay()===0||h>=22||h<7) ? 6 : 0;
+    travel = Math.round(10 + km*2.4 + off);  // acceso + espera + ~25 km/h comercial
+    worst = travel + 8;
+  } else {
+    travel = Math.round(baseMin*(inst.mode==='bike'?1.1:1));
+    worst = travel;
+  }
+  if(inst.mode==='car') park = parkingEstimate(inst.dest, arrive, inst.hasParking);
+  const parkMin = park ? park.min : 0;
+  const buffer = st.bufferMin;
+  const prepMin = inst.prepMin ?? st.prepMin;
+  const leave = addMin(arrive, -(buffer+parkMin+travel));
+  const prep = addMin(leave, -prepMin);
+  const wake = addMin(prep, -st.wakeMin);
+  // "alarma de seguridad" con el peor tráfico (como el vídeo: +X min de sueño)
+  const worstWake = addMin(arrive, -(buffer+parkMin+worst+prepMin+st.wakeMin));
+  const extraSleep = Math.max(0, Math.round((wake-worstWake)/60000));
+  return {inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
+}
+
+/* ---------- Instancias (rutinas + planes) ---------- */
+function instancesNext(days=7){
+  const now=new Date(), out=[];
+  for(let i=0;i<days;i++){
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate()+i);
+    for(const r of S.routines){
+      if(!r.enabled || !r.days.includes(day.getDay()) || !r.dest) continue;
+      const [h,m]=r.time.split(':').map(Number);
+      const arrive=new Date(day); arrive.setHours(h,m,0,0);
+      if(arrive<now) continue;
+      out.push({...r, kind:'routine', srcId:r.id, arrive, key:r.id+'@'+arrive.toISOString().slice(0,10)});
+    }
+  }
+  const lim = addMin(now, days*1440);
+  for(const p of S.plans){
+    const arrive = new Date(p.when);
+    if(arrive<addMin(now,-60) || arrive>lim || !p.dest) continue;
+    out.push({...p, kind:'plan', srcId:p.id, arrive, key:p.id});
+  }
+  return out.sort((a,b)=>a.arrive-b.arrive);
+}
+
+/* ---------- Render: timeline como el vídeo ---------- */
+function roadSVG(level, w=400){
+  const col = {green:'var(--drive)', amber:'var(--amber)', red:'var(--red)'}[level];
+  return `<svg viewBox="0 0 ${w} 46" preserveAspectRatio="none">
+    <path d="M0 30 C ${w*.2} 10, ${w*.35} 44, ${w*.55} 26 S ${w*.85} 12, ${w} 24" fill="none" stroke="${col}" stroke-opacity=".25" stroke-width="16" stroke-linecap="round"/>
+    <path d="M0 30 C ${w*.2} 10, ${w*.35} 44, ${w*.55} 26 S ${w*.85} 12, ${w} 24" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round"/>
+    <path d="M0 30 C ${w*.2} 10, ${w*.35} 44, ${w*.55} 26 S ${w*.85} 12, ${w} 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-dasharray="8 8" stroke-opacity=".8"/>
+  </svg>`;
+}
+function timelineHTML(c, opts={}){
+  const isMorning = c.prep.getHours() < 11;
+  const lvl = c.inst.mode==='car' ? trafficLevel(c.tf) : 'green';
+  const minH = 46, scale = 1.6; // px por minuto
+  const h = m => Math.max(minH, Math.round(m*scale));
+  const travelCol = {green:'var(--drive)',amber:'var(--amber)',red:'var(--red)'}[lvl];
+  const trafficTxt = c.inst.mode!=='car' ? '' : (lvl==='green'?'Carreteras despejadas':lvl==='amber'?'Tráfico moderado':'Hora punta');
+  const sleep = isMorning ? `
+    <div class="blk b-sleep" style="min-height:${opts.compact?110:130}px">
+      <div class="h"><span>🌙 ${isMorning?'Dormir':'Tiempo libre'}</span>${c.extraSleep>0?`<span class="badge">+${c.extraSleep} min</span>`:''}</div>
+      ${c.extraSleep>0 && c.inst.mode==='car' ? `<div class="msg">${trafficTxt}.<span>${c.extraSleep} minutos más de sueño que con el peor tráfico.</span></div>`:''}
+      <div class="big">${hm(c.wake)}<small>despertar</small></div>
+    </div>` : `
+    <div class="blk b-sleep" style="min-height:96px">
+      <div class="h"><span>🕐 Empieza a prepararte</span></div>
+      <div class="big">${hm(c.prep)}</div>
+    </div>`;
+  return `
+  <div class="blocks" style="display:flex;flex-direction:column;gap:5px;margin-top:8px">
+    ${sleep}
+    <div class="blk b-ready" style="min-height:${h(c.prepMin)}px">
+      <div class="h"><span>💧 Prepararte · ${hm(c.prep)}</span><span>${c.prepMin} min</span></div>
+      <div class="foot">Sal a las <b style="color:#fff;font-size:15px">${hm(c.leave)}</b></div>
+    </div>
+    <div class="blk b-drive" style="min-height:${Math.max(84,h(c.travel))}px">
+      <div class="h"><span>${MODE[c.inst.mode].ic} ${MODE[c.inst.mode].n}${c.km?` · ${c.km.toFixed(1)} km`:''}</span><span style="color:${travelCol}">${c.travel} min</span></div>
+      ${c.inst.mode==='car'?`<div class="foot">${trafficTxt} · ×${c.tf.toFixed(2)}${c.inst.manualTravel?' · tiempo manual':''}</div>`:''}
+      ${roadSVG(lvl)}
+    </div>
+    ${c.park?`<div class="blk b-park" style="min-height:${h(c.parkMin)}px">
+      <div class="h"><span>🅿️ Aparcar · ${esc(c.park.zone)}</span><span>${c.parkMin} min</span></div>
+    </div>`:''}
+    <div class="blk b-dest">🧳 ${hm(c.arrive)} · ${esc(c.inst.name||c.inst.dest.label)} ${c.buffer?`<span class="muted tiny" style="margin-left:auto">margen ${c.buffer} min</span>`:''}</div>
+  </div>`;
+}
+function widgetHTML(c){
+  const lvl = c.inst.mode==='car'?trafficLevel(c.tf):'green';
+  const col={green:'var(--drive)',amber:'var(--amber)',red:'var(--red)'}[lvl];
+  return `<div class="widget">
+    <div class="k"><b style="color:${col}">${c.travel} min</b> a ${esc(c.inst.name||'destino')}</div>
+    <svg viewBox="0 0 300 28" preserveAspectRatio="none"><path d="M6 18 C 80 10, 140 22, 200 14 S 270 8, 292 10" fill="none" stroke="${col}" stroke-width="4" stroke-linecap="round"/><circle cx="6" cy="18" r="4" fill="#fff"/><circle cx="292" cy="10" r="6" fill="${col}"/></svg>
+    <div style="font-weight:600">Sal a las ${hm(c.leave)}</div>
+  </div>`;
+}
+function countdownTxt(c){
+  const now=new Date(), m = t => Math.round((t-now)/60000);
+  if(now < c.wake && c.prep.getHours()<11) return `⏰ Despiértate en ${dur(m(c.wake))}`;
+  if(now < c.prep) return `🕐 Empieza a prepararte en ${dur(m(c.prep))}`;
+  if(now < c.leave) return `🚪 Sal en ${dur(m(c.leave))}`;
+  if(now < c.arrive) return `⚠️ Deberías haber salido hace ${dur(-m(c.leave))}`;
+  return 'Ya ha pasado';
+}
+
+/* ---------- Vista HOY ---------- */
+let computed = {};
+async function renderHoy(){
+  const t=new Date();
+  $('#todayStr').textContent = t.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+  const list = instancesNext(7);
+  if(!S.settings.home){
+    $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px"><b>👋 Empieza por aquí</b><div class="sub" style="margin:6px 0 12px">Dime dónde vives y crea tu primera rutina (p. ej. ir a trabajar) para ver a qué hora levantarte.</div><button class="btn pri" onclick="go('ajustes')">Configurar mi casa</button></div>`;
+  } else if(!list.length){
+    $('#nextBox').innerHTML = `<div class="card empty" style="margin-top:12px">No tienes nada en los próximos 7 días.<div style="margin-top:12px" class="row" ><button class="btn sm" style="margin:auto" onclick="openForm('routine')">⏰ Crear rutina</button></div></div>`;
+  } else {
+    $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px"><span class="spin"></span> <span class="muted">Comprobando ruta…</span></div>`;
+  }
+  // Próximos
+  const up = $('#upcoming');
+  if(!list.length){ up.innerHTML = `<div class="empty">Sin planes ni rutinas. Pulsa <b>+</b> para añadir.</div>`; }
+  else{
+    let html='', lastDay='';
+    for(const i of list){
+      const dn = dayName(i.arrive);
+      if(dn!==lastDay){ html+=`<div class="daylabel">${dn}</div>`; lastDay=dn; }
+      html+=`<div class="card item" data-key="${esc(i.key)}" onclick="openDetail('${esc(i.key)}')">
+        <div class="when"><b>${hm(i.arrive)}</b><span>llegar</span></div>
+        <div class="what"><div class="n">${i.kind==='routine'?'⏰':(i.type==='reserva'?'🍽️':'📍')} ${esc(i.name||i.dest.label)}</div>
+        <div class="tiny muted" data-out><span class="spin"></span></div></div></div>`;
+    }
+    up.innerHTML = html;
+  }
+  let first=true;
+  for(const i of list){
+    try{
+      const c = await compute(i);
+      computed[i.key]=c;
+      if(first){ first=false;
+        $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px;padding:12px">
+          <div class="row between"><span class="pill">${dayName(i.arrive)} · ${esc(i.name||i.dest.label)}</span><span class="pill" id="cd"></span></div>
+          ${timelineHTML(c)}${widgetHTML(c)}</div>`;
+        $('#cd').textContent = countdownTxt(c);
+      }
+      const el = up.querySelector(`[data-key="${CSS.escape(i.key)}"] [data-out]`);
+      if(el) el.innerHTML = `${c.prep.getHours()<11?`⏰ Despertar <b style="color:var(--txt)">${hm(c.wake)}</b> · `:`Prepararte ${hm(c.prep)} · `}🚪 Salir <b style="color:var(--accent)">${hm(c.leave)}</b> · ${MODE[i.mode].ic} ${c.travel} min${c.park?` + 🅿️ ${c.parkMin}`:''}`;
+    }catch(e){
+      if(first){ first=false; $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px">⚠️ ${esc(e.message)}</div>`; }
+      const el = up.querySelector(`[data-key="${CSS.escape(i.key)}"] [data-out]`);
+      if(el) el.textContent = '⚠️ '+e.message;
+    }
+  }
+  scheduleNotifs();
+}
+setInterval(()=>{ const k=Object.keys(computed)[0]; const list=instancesNext(1); const c=list[0]&&computed[list[0].key]; if(c && $('#cd')) $('#cd').textContent=countdownTxt(c); }, 30000);
+
+/* ---------- Selector de lugares ---------- */
+function placeSavedOptions(){
+  const seen=new Map();
+  if(S.settings.home) seen.set('home',{...S.settings.home, nm:'🏠 Casa'});
+  [...S.routines,...S.plans].forEach(x=>{ if(x.dest){ const k=x.dest.lat.toFixed(4)+x.dest.lon.toFixed(4); if(!seen.has(k)) seen.set(k,{...x.dest, nm:x.name||x.dest.label}); }});
+  return [...seen.values()];
+}
+function placePicker(container, initial, onPick, withSaved=true){
+  const id = 'pp'+uid();
+  const saved = withSaved ? placeSavedOptions() : [];
+  container.innerHTML = `
+    <input class="i" id="${id}" placeholder="Busca una dirección o sitio (p. ej. Calle Alcalá 50)" autocomplete="off" value="">
+    ${saved.length?`<div class="chips" style="margin-top:8px">${saved.map((p,k)=>`<button type="button" class="chip" data-k="${k}">${esc(p.nm)}</button>`).join('')}</div>`:''}
+    <div class="sugg" hidden></div>
+    <div class="chosen">${initial?'✓ '+esc(initial.label):''}</div>`;
+  const inp = container.querySelector('input'), sug=container.querySelector('.sugg'), ch=container.querySelector('.chosen');
+  const pick = p => { onPick(p); ch.textContent='✓ '+p.label; sug.hidden=true; inp.value=''; };
+  container.querySelectorAll('.chip[data-k]').forEach(b=>b.onclick=()=>{ const p=saved[+b.dataset.k]; pick({lat:p.lat,lon:p.lon,label:p.label}); });
+  let tmr, results=[];
+  inp.oninput = () => {
+    clearTimeout(tmr); const q=inp.value.trim();
+    if(q.length<3){ sug.hidden=true; return; }
+    tmr=setTimeout(async()=>{
+      sug.hidden=false; sug.innerHTML='<div><span class="spin"></span> Buscando…</div>';
+      try{
+        results = await geocode(q);
+        sug.innerHTML = results.length ? results.map((r,k)=>`<div data-k="${k}">📍 ${esc(r.label)}</div>`).join('') : '<div>Sin resultados</div>';
+        sug.querySelectorAll('[data-k]').forEach(d=>d.onclick=()=>pick(results[+d.dataset.k]));
+      }catch(e){ sug.innerHTML='<div>Error buscando. ¿Tienes conexión?</div>'; }
+    },350);
+  };
+}
+
+/* ---------- Formulario rutina / plan ---------- */
+function openForm(kind, id){
+  const isR = kind==='routine';
+  const src = id ? (isR?S.routines:S.plans).find(x=>x.id===id) : null;
+  const st=S.settings;
+  const def = new Date(Date.now()+3*3600e3); def.setMinutes(def.getMinutes()<30?30:60,0,0);
+  const f = src ? structuredClone(src) : {
+    id:uid(), name:isR?'Trabajo':'', dest:null, mode:st.mode, prepMin:null, originType:isR?'home':'gps',
+    hasParking:false, manualTravel:'', enabled:true, days:[1,2,3,4,5], time:'09:00', when:toLocalInput(def), type:'reserva'
+  };
+  $('#sheet').innerHTML = `
+    <div class="row between"><h2 style="margin:0">${src?'Editar':'Nueva'} ${isR?'rutina':'reserva / plan'}</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div>
+    ${!isR?`<label class="f">Tipo</label><div class="chips" id="fType">${[['reserva','🍽️ Reserva'],['plan','📍 Plan'],['cita','🩺 Cita']].map(([v,l])=>`<button type="button" class="chip ${f.type===v?'on':''}" data-v="${v}">${l}</button>`).join('')}</div>`:''}
+    <label class="f">Nombre</label><input class="i" id="fName" value="${esc(f.name)}" placeholder="${isR?'Trabajo, Gimnasio, Clase…':'Cena en …'}">
+    <label class="f">¿A dónde vas?</label><div id="fPlace"></div>
+    ${isR?`<label class="f">Días</label><div class="chips" id="fDays">${DAYS.map(d=>`<button type="button" class="chip ${f.days.includes(d.d)?'on':''}" data-d="${d.d}">${d.l}</button>`).join('')}</div>
+      <label class="f">Tengo que estar allí a las</label><input class="i" type="time" id="fTime" value="${f.time}">`
+      :`<label class="f">Hora de la reserva / llegada</label><input class="i" type="datetime-local" id="fWhen" value="${f.when}">`}
+    <label class="f">Cómo voy</label><div class="chips" id="fMode">${Object.entries(MODE).map(([k,v])=>`<button type="button" class="chip ${f.mode===k?'on':''}" data-v="${k}">${v.ic} ${v.n}</button>`).join('')}</div>
+    <label class="f">Salgo desde</label><div class="chips" id="fOrigin">
+      <button type="button" class="chip ${f.originType==='home'?'on':''}" data-v="home">🏠 Casa</button>
+      <button type="button" class="chip ${f.originType==='gps'?'on':''}" data-v="gps">📍 Mi ubicación en ese momento</button></div>
+    <div class="grid2">
+      <div><label class="f">Tardo en prepararme (min)</label><input class="i" type="number" min="0" id="fPrep" value="${f.prepMin??''}" placeholder="${st.prepMin} (por defecto)"></div>
+      <div><label class="f">Trayecto fijo (opcional)</label><input class="i" type="number" min="0" id="fManual" value="${f.manualTravel||''}" placeholder="auto"></div>
+    </div>
+    <label class="row" style="margin-top:14px;gap:10px;font-size:14px" id="fParkWrap"><button type="button" class="sw ${f.hasParking?'on':''}" id="fPark"></button> Tengo plaza de aparcamiento allí</label>
+    <div class="row" style="margin-top:20px;gap:8px">
+      ${src?`<button class="btn danger" onclick="delItem('${kind}','${f.id}')">Borrar</button>`:''}
+      <button class="btn pri" style="flex:1" id="fSave">Guardar</button>
+    </div>`;
+  placePicker($('#fPlace'), f.dest, p=>{ f.dest=p; if(!$('#fName').value) $('#fName').value=p.label.split(',')[0]; });
+  const single = (sel, key) => $(sel)?.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ $(sel).querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); f[key]=b.dataset.v; if(key==='mode') parkVis(); });
+  single('#fMode','mode'); single('#fOrigin','originType'); single('#fType','type');
+  const parkVis = () => $('#fParkWrap').style.display = f.mode==='car'?'flex':'none'; parkVis();
+  $('#fPark').onclick = e => { f.hasParking=!f.hasParking; e.currentTarget.classList.toggle('on', f.hasParking); };
+  $('#fDays')?.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ const d=+b.dataset.d; f.days = f.days.includes(d)?f.days.filter(x=>x!==d):[...f.days,d]; b.classList.toggle('on'); });
+  $('#fSave').onclick = () => {
+    if(!f.dest) return toast('Elige un destino');
+    f.name = $('#fName').value.trim() || f.dest.label.split(',')[0];
+    const p=$('#fPrep').value; f.prepMin = p===''?null:+p;
+    f.manualTravel = $('#fManual').value;
+    if(isR){ f.time=$('#fTime').value||'09:00'; if(!f.days.length) return toast('Elige al menos un día'); }
+    else { f.when=$('#fWhen').value; if(!f.when) return toast('Pon la hora'); }
+    const arr = isR?S.routines:S.plans; const k=arr.findIndex(x=>x.id===f.id);
+    if(k>=0) arr[k]=f; else arr.push(f);
+    save(); closeSheet(); renderAll(); toast('Guardado ✓');
+  };
+  openSheet();
+}
+function delItem(kind,id){
+  if(kind==='routine') S.routines=S.routines.filter(x=>x.id!==id); else S.plans=S.plans.filter(x=>x.id!==id);
+  save(); closeSheet(); renderAll(); toast('Borrado');
+}
+
+/* ---------- Detalle (con parkings cercanos y enlaces) ---------- */
+async function openDetail(key){
+  const inst = instancesNext(7).find(i=>i.key===key); if(!inst) return;
+  $('#sheet').innerHTML = `<div class="row between"><h2 style="margin:0">${esc(inst.name)}</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div><div class="sub">${dayName(inst.arrive)} · llegar a las ${hm(inst.arrive)}</div><div id="dBody"><div style="padding:20px"><span class="spin"></span></div></div>`;
+  openSheet();
+  try{
+    const c = computed[key] || await compute(inst);
+    const d=inst.dest, tm={car:'driving',transit:'transit',walk:'walking',bike:'bicycling'}[inst.mode];
+    $('#dBody').innerHTML = `
+      ${timelineHTML(c,{compact:true})}
+      <div class="card" style="margin-top:12px">
+        <div class="kv"><span>Salida desde</span><b>${esc(c.origin.label)}${c.origin.fallback?' (sin GPS)':''}</b></div>
+        <div class="kv"><span>${MODE[inst.mode].ic} Trayecto</span><b>${c.travel} min${c.km?` · ${c.km.toFixed(1)} km`:''}</b></div>
+        ${inst.mode==='car'?`<div class="kv"><span>Tráfico previsto</span><b>×${c.tf.toFixed(2)} (${({green:'fluido',amber:'moderado',red:'hora punta'})[trafficLevel(c.tf)]})</b></div>`:''}
+        ${c.park?`<div class="kv"><span>🅿️ Aparcar (${esc(c.park.zone)})</span><b>${c.parkMin} min</b></div><div class="tiny muted" style="padding:4px 0 8px">${esc(c.park.note)}</div>`:''}
+        <div class="kv"><span>Margen</span><b>${c.buffer} min</b></div>
+        <div class="kv"><span>💧 Prepararte</span><b>${c.prepMin} min</b></div>
+        ${c.src==='est'?`<div class="tiny" style="color:var(--amber)">Ruta estimada sin conexión.</div>`:''}
+      </div>
+      ${inst.mode==='car'&&!inst.hasParking?`<div class="card" style="margin-top:12px"><div class="row between"><b>Parkings públicos cerca</b><button class="btn sm" id="dPk">Buscar</button></div><div id="dPkOut" class="tiny muted" style="margin-top:6px">Garajes a menos de 800 m del destino.</div></div>`:''}
+      <div class="links">
+        <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lon}&travelmode=${tm}" target="_blank" rel="noopener">🗺️ Google Maps (tráfico real)</a>
+        ${inst.mode==='car'?`<a class="btn sm" href="https://waze.com/ul?ll=${d.lat},${d.lon}&navigate=yes" target="_blank" rel="noopener">🚙 Waze</a>`:''}
+        ${inst.mode==='transit'?`<a class="btn sm" href="https://citymapper.com/directions?endcoord=${d.lat},${d.lon}" target="_blank" rel="noopener">🚇 Citymapper</a>`:''}
+      </div>
+      <div class="row" style="margin-top:14px;gap:8px">
+        <button class="btn" style="flex:1" onclick="openForm('${inst.kind}','${inst.srcId}')">✏️ Editar</button>
+        <button class="btn" style="flex:1" onclick="exportICS('${inst.srcId}')">📅 Al calendario</button>
+      </div>`;
+    const b=$('#dPk');
+    if(b) b.onclick = async()=>{
+      $('#dPkOut').innerHTML='<span class="spin"></span>';
+      try{
+        const ps = await nearbyParkings(d);
+        $('#dPkOut').innerHTML = ps.length ? ps.map(p=>`<div class="kv"><span>🅿️ ${esc(p.name)}</span><span>${Math.round(p.m)} m · ${p.walk} min andando · <a style="color:var(--accent)" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}&travelmode=driving" target="_blank" rel="noopener">ir</a></span></div>`).join('')
+          + `<div style="margin-top:6px">Si vas directo al parking: ~${3+ps[0].walk} min en vez de ${c.parkMin} min buscando sitio.</div>`
+          : 'No he encontrado garajes públicos cerca en OpenStreetMap.';
+      }catch(e){ $('#dPkOut').textContent='No se pudo consultar ahora. Prueba en un rato.'; }
+    };
+  }catch(e){ $('#dBody').innerHTML = `<div class="card" style="margin-top:12px">⚠️ ${esc(e.message)}</div>`; }
+}
+
+/* ---------- Rutinas y planes ---------- */
+function renderRoutines(){
+  const el=$('#routineList');
+  if(!S.routines.length){ el.innerHTML=`<div class="card empty">Aún no tienes rutinas.<br><br><button class="btn pri" onclick="openForm('routine')">⏰ Crear “Ir a trabajar”</button></div>`; return; }
+  el.innerHTML = S.routines.map(r=>{
+    const days = DAYS.filter(d=>r.days.includes(d.d)).map(d=>d.l).join(' ');
+    return `<div class="alarm ${r.enabled?'':'off'}" onclick="openForm('routine','${r.id}')">
+      <div class="row between"><div class="t" data-rw="${r.id}">--:--<small></small></div><button class="sw ${r.enabled?'on':''}" onclick="event.stopPropagation();toggleR('${r.id}')"></button></div>
+      <div class="tiny muted" style="margin-top:4px">${days} · despertar</div>
+      <div class="goal">${MODE[r.mode].ic} Estar en <b>${esc(r.name)}</b> a las ${r.time}</div>
+    </div>`;
+  }).join('');
+  // calcula hora de despertar del próximo día que toque
+  S.routines.forEach(async r=>{
+    const now=new Date();
+    for(let i=0;i<8;i++){
+      const day=new Date(now.getFullYear(),now.getMonth(),now.getDate()+i);
+      if(!r.days.includes(day.getDay())) continue;
+      const [h,m]=r.time.split(':').map(Number); const arrive=new Date(day); arrive.setHours(h,m,0,0);
+      if(arrive<now) continue;
+      try{ const c=await compute({...r,arrive}); const el=document.querySelector(`[data-rw="${r.id}"]`);
+        if(el) el.innerHTML = `${hm(c.prep.getHours()<11?c.wake:c.prep)}<small>${c.prep.getHours()<11?'':'preparar'}</small>`;
+      }catch(e){ const el=document.querySelector(`[data-rw="${r.id}"]`); if(el) el.innerHTML='<small>⚠️ configura casa</small>'; }
+      break;
+    }
+  });
+}
+function toggleR(id){ const r=S.routines.find(x=>x.id===id); r.enabled=!r.enabled; save(); renderAll(); }
+function renderPlans(){
+  const el=$('#planList'), now=new Date();
+  const ps=[...S.plans].sort((a,b)=>new Date(a.when)-new Date(b.when));
+  if(!ps.length){ el.innerHTML=`<div class="card empty">No tienes reservas ni planes.<br><br><button class="btn pri" onclick="openForm('plan')">🍽️ Añadir reserva</button></div>`; return; }
+  el.innerHTML = ps.map(p=>{
+    const d=new Date(p.when), past=d<addMin(now,-60);
+    return `<div class="card item" style="${past?'opacity:.45':''}" onclick="${past||d>addMin(now,7*1440)?`openForm('plan','${p.id}')`:`openDetail('${p.id}')`}">
+      <div class="when"><b>${hm(d)}</b><span>${d.toLocaleDateString('es-ES',{day:'numeric',month:'short'})}</span></div>
+      <div class="what"><div class="n">${p.type==='reserva'?'🍽️':p.type==='cita'?'🩺':'📍'} ${esc(p.name)}</div><div class="tiny muted">${MODE[p.mode].ic} ${esc(p.dest.label)}</div></div></div>`;
+  }).join('');
+}
+
+/* ---------- ¿Cuándo salgo? (rápido) ---------- */
+let quickDest=null;
+function initQuick(){
+  placePicker($('#quickPlace'), null, p=>quickDest=p);
+  const d=new Date(Date.now()+3600e3); d.setMinutes(d.getMinutes()<30?30:60,0,0);
+  $('#qWhen').value = toLocalInput(d); $('#qMode').value=S.settings.mode;
+}
+async function quickCalc(){
+  if(!quickDest) return toast('Elige un destino');
+  const inst={name:quickDest.label.split(',')[0], dest:quickDest, mode:$('#qMode').value, originType:'gps', arrive:new Date($('#qWhen').value)};
+  $('#quickOut').innerHTML='<div style="padding:14px"><span class="spin"></span> Calculando desde tu ubicación…</div>';
+  try{
+    const c=await compute(inst);
+    const now=new Date(), left=Math.round((c.leave-now)/60000);
+    $('#quickOut').innerHTML = `<div style="margin-top:12px" class="tiny muted">Desde ${esc(c.origin.label)}${c.origin.fallback?' (no pude leer el GPS; uso tu casa)':''}</div>
+      ${left<0?`<div class="pill" style="margin-top:8px;color:#fca5a5">Llegas tarde: tenías que salir hace ${dur(-left)}</div>`:`<div class="pill" style="margin-top:8px">Sal en ${dur(left)}</div>`}
+      ${timelineHTML(c,{compact:true})}`;
+  }catch(e){ $('#quickOut').innerHTML=`<div style="margin-top:10px">⚠️ ${esc(e.message)}</div>`; }
+}
+function quickSave(){
+  if(!quickDest) return toast('Elige un destino');
+  S.plans.push({id:uid(), name:quickDest.label.split(',')[0], dest:quickDest, mode:$('#qMode').value, originType:'gps', prepMin:null, hasParking:false, manualTravel:'', when:$('#qWhen').value, type:'plan'});
+  save(); renderAll(); toast('Guardado en Planes ✓');
+}
+
+/* ---------- Ajustes ---------- */
+function renderSettings(){
+  const st=S.settings;
+  placePicker($('#homePlace'), st.home, p=>{ st.home=p; save(); renderAll(); toast('Casa guardada ✓'); }, false);
+  $('#sPrep').value=st.prepMin; $('#sBuffer').value=st.bufferMin; $('#sWake').value=st.wakeMin; $('#sMode').value=st.mode;
+  $('#sRisk').querySelectorAll('.chip').forEach(b=>{ b.classList.toggle('on', +b.dataset.v===st.risk); b.onclick=()=>{ st.risk=+b.dataset.v; save(); renderSettings(); renderAll(true); }; });
+  $('#sNotif').classList.toggle('on', st.notif);
+}
+['sPrep','sBuffer','sWake'].forEach(id=>document.getElementById(id).onchange=e=>{
+  const k={sPrep:'prepMin',sBuffer:'bufferMin',sWake:'wakeMin'}[id]; S.settings[k]=Math.max(0,+e.target.value||0); save(); renderAll(true);
+});
+$('#sMode').onchange=e=>{ S.settings.mode=e.target.value; save(); };
+$('#sNotif').onclick=async()=>{
+  if(!S.settings.notif){
+    if(!('Notification' in window)) return toast('Tu navegador no permite avisos. En iPhone: instala la web (Compartir → Añadir a inicio).');
+    const p = await Notification.requestPermission();
+    if(p!=='granted') return toast('Permiso denegado');
+  }
+  S.settings.notif=!S.settings.notif; save(); renderSettings(); scheduleNotifs();
+};
+async function homeFromGPS(){
+  try{ toast('Leyendo ubicación…'); const p=await getGPS(); const label=await reverseGeo(p.lat,p.lon); S.settings.home={lat:p.lat,lon:p.lon,label}; save(); renderAll(); toast('Casa guardada ✓'); }
+  catch(e){ toast('No pude leer tu ubicación'); }
+}
+
+/* ---------- Avisos ---------- */
+let notifTimers=[];
+function scheduleNotifs(){
+  notifTimers.forEach(clearTimeout); notifTimers=[];
+  if(!S.settings.notif || !('Notification' in window) || Notification.permission!=='granted') return;
+  const now=Date.now();
+  Object.values(computed).forEach(c=>{
+    [[c.prep,`💧 Empieza a prepararte`,`Para llegar a ${c.inst.name} a las ${hm(c.arrive)}`],
+     [c.leave,`🚪 Sal ya hacia ${c.inst.name}`,`${MODE[c.inst.mode].ic} ${c.travel} min${c.park?` + ${c.parkMin} min aparcar`:''}`]]
+    .forEach(([t,title,body])=>{
+      const ms=t-now; if(ms>0 && ms<20*3600e3) notifTimers.push(setTimeout(()=>notify(title,body), ms));
+    });
+  });
+}
+async function notify(title, body){
+  try{ const reg = await navigator.serviceWorker?.getRegistration(); if(reg) return reg.showNotification(title,{body,icon:'icon-192.png'}); }catch(e){}
+  try{ new Notification(title,{body}); }catch(e){}
+}
+
+/* ---------- Exportar .ics con alarmas ---------- */
+function icsDate(d){ return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`; }
+function icsEsc(s){ return String(s).replace(/[\\;,]/g,m=>'\\'+m).replace(/\n/g,'\\n'); }
+async function exportICS(onlyId){
+  toast('Preparando calendario…');
+  const L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//ATiempo//ES','CALSCALE:GREGORIAN','X-WR-CALNAME:ATiempo'];
+  const BYDAY={0:'SU',1:'MO',2:'TU',3:'WE',4:'TH',5:'FR',6:'SA'};
+  const stamp=icsDate(new Date());
+  const ev=(c,uidv,rrule)=>{
+    const start=c.prep.getHours()<11?c.wake:c.prep;
+    const toMin=t=>Math.round((t-start)/60000);
+    L.push('BEGIN:VEVENT',`UID:${uidv}@atiempo`,`DTSTAMP:${stamp}`,`DTSTART:${icsDate(start)}`,`DTEND:${icsDate(c.arrive)}`,
+      `SUMMARY:${icsEsc(`${MODE[c.inst.mode].ic} ${c.inst.name}: sal a las ${hm(c.leave)}`)}`,
+      `LOCATION:${icsEsc(c.inst.dest.label)}`,
+      `DESCRIPTION:${icsEsc(`Despertar ${hm(c.wake)} · Prepararte ${hm(c.prep)} · Salir ${hm(c.leave)} · Trayecto ${c.travel} min${c.park?` · Aparcar ${c.parkMin} min`:''} · Llegar ${hm(c.arrive)}`)}`);
+    if(rrule) L.push(rrule);
+    const alarms = [];
+    if(c.prep.getHours()<11) alarms.push([0,'⏰ Despierta']);
+    alarms.push([toMin(c.prep),'💧 Empieza a prepararte'],[toMin(c.leave),`🚪 Sal ya hacia ${c.inst.name}`]);
+    alarms.forEach(([m,t])=>L.push('BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:${icsEsc(t)}`,`TRIGGER;RELATED=START:${m>=0?'':'-'}PT${Math.abs(m)}M`,'END:VALARM'));
+    L.push('END:VEVENT');
+  };
+  try{
+    const now=new Date();
+    for(const r of S.routines.filter(r=>r.enabled && (!onlyId||r.id===onlyId))){
+      // un evento semanal por cada día (el tráfico cambia según el día)
+      for(const dd of r.days){
+        const day=new Date(now); day.setDate(now.getDate()+((dd-now.getDay()+7)%7||7));
+        const [h,m]=r.time.split(':').map(Number); day.setHours(h,m,0,0);
+        const c=await compute({...r,arrive:day,originType:'home'});
+        ev(c, `${r.id}-${dd}`, `RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[dd]}`);
+      }
+    }
+    for(const p of S.plans.filter(p=>(!onlyId||p.id===onlyId) && new Date(p.when)>now)){
+      const c=await compute({...p,arrive:new Date(p.when),originType:p.originType==='gps'?'home':p.originType});
+      ev(c, p.id);
+    }
+  }catch(e){ return toast('⚠️ '+e.message); }
+  L.push('END:VCALENDAR');
+  download(L.join('\r\n'), onlyId?'atiempo-evento.ics':'atiempo.ics', 'text/calendar');
+  toast('Calendario descargado ✓');
+}
+function download(text, name, type){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+}
+function exportJSON(){ download(JSON.stringify(S,null,2),'atiempo-backup.json','application/json'); }
+function importJSON(inp){
+  const f=inp.files[0]; if(!f) return;
+  f.text().then(t=>{ try{ const j=JSON.parse(t); if(!j.settings) throw 0; try{ localStorage.setItem('atiempo.v1', JSON.stringify(j)); }catch(e){} load(); if(!S.settings.home && j.settings.home) S=Object.assign(structuredClone(DEFAULT),j); save(); renderAll(); toast('Datos importados ✓'); }catch(e){ toast('Archivo no válido'); } });
+}
+
+/* ---------- Navegación / UI ---------- */
+function go(v){
+  document.querySelectorAll('section.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+v));
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>go(b.dataset.v));
+function openSheet(){ $('#sheetBg').classList.add('on'); }
+function closeSheet(){ $('#sheetBg').classList.remove('on'); }
+let toastT; function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',2600); }
+function renderAll(){ computed={}; renderHoy(); renderRoutines(); renderPlans(); renderSettings(); }
+
+initQuick();
+renderAll();
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+</script>
+</body>
+</html>
