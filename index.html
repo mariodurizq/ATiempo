@@ -141,7 +141,7 @@ input.i:focus{border-color:var(--accent)}
   <div class="wrap">
     <div class="row between">
       <div>
-        <div class="sub" id="todayStr"></div>
+        <div class="sub"><span id="todayStr"></span> · <span id="ver" class="tiny"></span></div>
         <h1>ATiempo</h1>
       </div>
       <button class="plus" onclick="openForm('plan')" title="Nuevo plan">+</button>
@@ -228,6 +228,7 @@ input.i:focus{border-color:var(--accent)}
         <label class="btn sm">⬆️ Importar<input type="file" accept=".json" hidden onchange="importJSON(this)"></label>
       </div>
     </div>
+    <button class="btn sm" style="margin-top:14px" onclick="forceUpdate()">🔄 Buscar actualización</button>
     <p class="tiny muted" style="margin-top:18px;line-height:1.5">Rutas: OpenStreetMap (OSRM) · Direcciones: Photon/Nominatim · Parkings: Overpass. Todo gratis y sin claves. El tráfico se estima con patrones típicos de Madrid por día y hora; para tráfico en vivo, abre la ruta en Waze o Google Maps desde cada plan. Tus datos se guardan solo en este dispositivo.</p>
   </div>
 </section>
@@ -1102,6 +1103,7 @@ function openInvite(planId){
 
 /* Unirse a un plan desde un enlace */
 function checkJoin(){
+  if(location.search.includes('u=')) history.replaceState(null,'',location.pathname);
   const j=new URLSearchParams(location.search).get('j'); if(!j) return;
   history.replaceState(null,'',location.pathname);
   let p; try{ p=b64d(j); }catch(e){ return toast('Invitación no válida'); }
@@ -1230,7 +1232,18 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+const APP_VERSION = 'v5 · alarmas';
+document.getElementById('ver').textContent = APP_VERSION;
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
+  let reloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{ if(!reloaded){ reloaded=true; location.reload(); } });
+}
+async function forceUpdate(){
+  toast('Actualizando…');
+  try{ const regs=await navigator.serviceWorker?.getRegistrations(); for(const r of regs||[]) await r.unregister(); const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
+  location.replace(location.pathname+'?u='+Date.now());
+}
 </script>
 </body>
 </html>
