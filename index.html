@@ -11,6 +11,8 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -81,8 +83,14 @@ section.view.on{display:block;animation:fade .25s ease}
 .b-ready{background:linear-gradient(180deg,var(--ready1),var(--ready2))}
 .b-ready .h{color:var(--ready)}
 .b-drive{background:#1b1d22;justify-content:flex-start;gap:4px;padding-bottom:54px}
-.b-drive svg{position:absolute;left:0;right:0;bottom:6px;width:100%;height:46px}
+.b-drive > svg{position:absolute;left:0;right:0;bottom:6px;width:100%;height:46px}
 .b-park{background:#211b33}
+.b-drive.withmap{padding-bottom:10px}
+.rmap{height:180px;border-radius:12px;margin-top:8px;overflow:hidden;background:#111;position:relative;z-index:0}
+.rmap .leaflet-control-attribution{font-size:8px;background:rgba(0,0,0,.5);color:#888}
+.rmap .leaflet-control-attribution a{color:#aaa}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;margin-top:6px;color:#cfcfe0}
+.legend i{display:inline-block;width:10px;height:4px;border-radius:2px;margin-right:4px;vertical-align:middle}
 .b-garage{background:#132624}
 .b-garage .h{color:#5eead4}
 .person{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
@@ -341,13 +349,17 @@ async function route(mode,o,d){
   const m = mode==='transit' ? 'car' : mode;
   const key = `${m}|${o.lat.toFixed(3)},${o.lon.toFixed(3)}|${d.lat.toFixed(3)},${d.lon.toFixed(3)}`;
   const c = routeCache[key];
-  if(c && Date.now()-c.t < 14*864e5) return c;
+  if(c && c.segs && Date.now()-c.t < 14*864e5) return c;
   for(const base of ROUTERS[m]){
     try{
-      const r = await fetch(`${base}${o.lon},${o.lat};${d.lon},${d.lat}?overview=false`);
+      const r = await fetch(`${base}${o.lon},${o.lat};${d.lon},${d.lat}?overview=false&steps=true&geometries=geojson`);
       const j = await r.json();
       if(j.routes?.[0]){
-        const res = {sec:j.routes[0].duration, m:j.routes[0].distance, t:Date.now(), src:'osm'};
+        const rt=j.routes[0];
+        const segs=(rt.legs?.[0]?.steps||[]).filter(st=>st.geometry?.coordinates?.length>1).map(st=>({
+          c:st.geometry.coordinates.map(p=>[+p[0].toFixed(5),+p[1].toFixed(5)]), n:st.name||'', r:st.ref||'', d:st.duration, sp:st.duration>0?st.distance/st.duration*3.6:0}));
+        const res = {sec:rt.duration, m:rt.distance, segs, t:Date.now(), src:'osm'};
+        const ks=Object.keys(routeCache); if(ks.length>40) delete routeCache[ks[0]];
         routeCache[key]=res; try{ localStorage.setItem('atiempo.routes', JSON.stringify(routeCache)); }catch(e){}
         return res;
       }
@@ -430,6 +442,10 @@ async function compute(inst){
   else if(inst.mode==='car'){
     tf = trafficFactor(guessDep) * st.risk;
     travel = Math.round(baseMin*1.1*tf + 2);
+    // 2ª pasada: tráfico a la hora real de salida
+    const dep2 = addMin(arrive, -(st.bufferMin + travel + (inst.hasParking?2:8)));
+    const tf2 = trafficFactor(dep2) * st.risk;
+    if(tf2!==tf){ tf=tf2; travel=Math.round(baseMin*1.1*tf + 2); }
     worst = Math.round(baseMin*1.1*Math.max(1.5,tf)*st.risk + 2);
   } else if(inst.mode==='transit'){
     const h=guessDep.getHours(), off = (guessDep.getDay()===0||h>=22||h<7) ? 6 : 0;
@@ -456,9 +472,54 @@ async function compute(inst){
   // "alarma de seguridad" con el peor tráfico (como el vídeo: +X min de sueño)
   const worstWake = addMin(arrive, -(buffer+parkMin+worst+garage+prepMin+st.wakeMin));
   const extraSleep = Math.max(0, Math.round((wake-worstWake)/60000));
-  return {garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
+  return {segs:r.segs, garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
 }
 
+/* ---------- Mapa del trayecto con tráfico habitual por tramos ---------- */
+const BIG_ROAD = /\b(M-30|M-40|M-45|M-50|M-11|M-12|M-13|M-14|M-21|M-23|M-31|M-500|M-503|M-607|A-\d+|R-\d|N-\d+|AP-\d+)\b|Castellana|Avenida de América|Paseo de la Castellana/i;
+function segLevel(seg, date){
+  const tf = trafficFactor(date);
+  const intensity = Math.max(0, Math.min(1, (tf-0.95)/0.55));     // 0 de noche/finde, 1 en hora punta
+  const mid = seg.c[Math.floor(seg.c.length/2)];
+  const km = haversine({lat:mid[1],lon:mid[0]}, MADRID_SOL)/1000;
+  const zone = km<5 ? 1 : km<12 ? 0.9 : km<20 ? 0.55 : 0.25;      // centro, anillo M-30/M-40, metropolitano, lejos
+  const cls = (BIG_ROAD.test(seg.r+' '+seg.n) || seg.sp>=65) ? 1 : seg.sp>=35 ? 0.75 : 0.4;
+  const score = intensity*zone*cls;
+  return score>0.55 ? 'red' : score>0.28 ? 'amber' : 'green';
+}
+const LVL_COL = {green:'#22c55e', amber:'#f59e0b', red:'#ef4444'};
+window._maps = {};
+function mapHTML(c){
+  if(!c.segs?.length || !window.L || c.inst.mode==='transit') return '';
+  const id = 'm'+uid(); window._maps[id] = c;
+  return `<div class="rmap" id="${id}"></div>
+    <div class="legend"><span><i style="background:#22c55e"></i>fluido</span><span><i style="background:#f59e0b"></i>algo</span><span><i style="background:#ef4444"></i>mucho</span><span class="muted">habitual a las ${hm(c.drive)}</span></div>`;
+}
+function mountMaps(){
+  if(!window.L) return;
+  document.querySelectorAll('.rmap:not(.done)').forEach(el=>{
+    const c = window._maps[el.id]; if(!c) return;
+    el.classList.add('done');
+    const map = L.map(el, {zoomControl:false, attributionControl:true, dragging:false, scrollWheelZoom:false, doubleClickZoom:false, touchZoom:false, boxZoom:false, keyboard:false, tap:false});
+    map.attributionControl.setPrefix(false);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19, attribution:'© OpenStreetMap © CARTO'}).addTo(map);
+    const all=[];
+    // tiempo aproximado al pasar por cada tramo
+    let t = c.drive.getTime(), totalSec = c.segs.reduce((a,s)=>a+s.d,0)||1, scale = c.travel*60/totalSec;
+    for(const s of c.segs){
+      const pts = s.c.map(p=>[p[1],p[0]]); all.push(...pts);
+      const lvl = c.inst.mode==='car' ? segLevel(s, new Date(t)) : 'green';
+      L.polyline(pts, {color:'#000', weight:8, opacity:.5}).addTo(map);
+      L.polyline(pts, {color:LVL_COL[lvl], weight:5, opacity:.95}).addTo(map);
+      t += s.d*scale*1000;
+    }
+    if(!all.length) return;
+    L.circleMarker(all[0], {radius:6, color:'#fff', weight:2, fillColor:'#0b0b10', fillOpacity:1}).addTo(map);
+    L.circleMarker(all[all.length-1], {radius:7, color:'#fff', weight:2, fillColor:'#f2a33a', fillOpacity:1}).addTo(map);
+    map.fitBounds(L.latLngBounds(all), {padding:[18,18]});
+    setTimeout(()=>map.invalidateSize(), 250);
+  });
+}
 /* ---------- Festivos (Madrid) ---------- */
 const HOLIDAYS = {
   cam:{'2026-01-01':'Año Nuevo','2026-01-06':'Reyes','2026-04-02':'Jueves Santo','2026-04-03':'Viernes Santo','2026-05-01':'Fiesta del Trabajo','2026-05-02':'Fiesta de la Comunidad','2026-08-15':'Asunción','2026-10-12':'Fiesta Nacional','2026-11-02':'Todos los Santos','2026-12-07':'Constitución','2026-12-08':'Inmaculada','2026-12-25':'Navidad',
@@ -534,7 +595,11 @@ function timelineHTML(c, opts={}){
       <div class="h"><span>🚶 Al garaje</span><span>${c.garage} min</span></div>
       <div class="foot">Arrancas a las ${hm(c.drive)}</div>
     </div>`:''}
-    <div class="blk b-drive" style="min-height:${Math.max(84,h(c.travel))}px">
+    ${(()=>{ const mh = mapHTML(c); if(mh) setTimeout(mountMaps,0); return mh ? `<div class="blk b-drive withmap">
+      <div class="h"><span>${MODE[c.inst.mode].ic} ${MODE[c.inst.mode].n}${c.km?` · ${c.km.toFixed(1)} km`:''}</span><span style="color:${travelCol}">${c.travel} min</span></div>
+      ${c.inst.mode==='car'?`<div class="foot">${trafficTxt} · ×${c.tf.toFixed(2)}${c.inst.manualTravel?' · tiempo manual':''}</div>`:''}
+      ${mh}</div>` : ''; })()}
+    <div class="blk b-drive" style="min-height:${Math.max(84,h(c.travel))}px;${c.segs?.length&&window.L&&c.inst.mode!=='transit'?'display:none':''}">
       <div class="h"><span>${MODE[c.inst.mode].ic} ${MODE[c.inst.mode].n}${c.km?` · ${c.km.toFixed(1)} km`:''}</span><span style="color:${travelCol}">${c.travel} min</span></div>
       ${c.inst.mode==='car'?`<div class="foot">${trafficTxt} · ×${c.tf.toFixed(2)}${c.inst.manualTravel?' · tiempo manual':''}</div>`:''}
       ${roadSVG(lvl)}
@@ -1286,7 +1351,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v7 · festivos';
+const APP_VERSION = 'v8 · mapa';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
