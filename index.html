@@ -87,6 +87,7 @@ section.view.on{display:block;animation:fade .25s ease}
 .b-park{background:#211b33}
 .b-drive.withmap{padding-bottom:10px}
 .rmap{height:180px;border-radius:12px;margin-top:8px;overflow:hidden;background:#111;position:relative;z-index:0}
+.rmap .osm-dark{filter:invert(1) hue-rotate(180deg) brightness(.8) contrast(.9)}
 .rmap .leaflet-control-attribution{font-size:8px;background:rgba(0,0,0,.5);color:#888}
 .rmap .leaflet-control-attribution a{color:#aaa}
 .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;margin-top:6px;color:#cfcfe0}
@@ -502,7 +503,12 @@ function mountMaps(){
     el.classList.add('done');
     const map = L.map(el, {zoomControl:false, attributionControl:true, dragging:false, scrollWheelZoom:false, doubleClickZoom:false, touchZoom:false, boxZoom:false, keyboard:false, tap:false});
     map.attributionControl.setPrefix(false);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19, attribution:'© OpenStreetMap © CARTO'}).addTo(map);
+    // Mapa base oscuro de Esri (gratis, sin clave); si falla, OpenStreetMap oscurecido
+    const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom:16, attribution:'© Esri · OpenStreetMap'}).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom:16, opacity:.8}).addTo(map);
+    let fell=false;
+    esri.on('tileerror', ()=>{ if(fell) return; fell=true; map.eachLayer(l=>{ if(l instanceof L.TileLayer) map.removeLayer(l); });
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap', className:'osm-dark'}).addTo(map); });
     const all=[];
     // tiempo aproximado al pasar por cada tramo
     let t = c.drive.getTime(), totalSec = c.segs.reduce((a,s)=>a+s.d,0)||1, scale = c.travel*60/totalSec;
@@ -1351,7 +1357,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v8 · mapa';
+const APP_VERSION = 'v9';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
