@@ -155,6 +155,7 @@ input.i:focus{border-color:var(--accent)}
       </div>
       <button class="plus" onclick="openForm('plan')" title="Nuevo plan">+</button>
     </div>
+    <div id="tripBar"></div>
     <div id="askBox"></div>
     <div id="nextBox"></div>
 
@@ -183,6 +184,7 @@ input.i:focus{border-color:var(--accent)}
   <div class="wrap">
     <div class="row between"><h1>Rutinas</h1><button class="plus" onclick="openForm('routine')">+</button></div>
     <div class="sub">Automatizaciones: p. ej. “Estar en el trabajo a las 9:00” de lunes a viernes. ATiempo calcula a qué hora despertarte según el tráfico típico de esa hora.</div>
+    <div id="schedBox"></div>
     <div class="list" id="routineList" style="margin-top:14px"></div>
   </div>
 </section>
@@ -226,6 +228,7 @@ input.i:focus{border-color:var(--accent)}
       </div>
     </div>
     <div class="card" style="margin-top:12px">
+      <div class="row between" style="margin-bottom:14px"><div><b>Detectar salida y llegada con GPS</b><div class="tiny muted">Con la web abierta: si sales de casa en tu hora de salir, empieza a medir; al llegar, lo guarda solo.</div></div><button class="sw" id="sAuto"></button></div>
       <div class="row between"><div><b>Avisos</b><div class="tiny muted">Te avisa al empezar a prepararte y al salir (con la app abierta o instalada).</div></div><button class="sw" id="sNotif"></button></div>
     </div>
     <div class="card" style="margin-top:12px">
@@ -466,6 +469,19 @@ async function compute(inst){
     const atHome = inst.originType==='home' || origin.fallback || (st.home && haversine(origin, st.home)<300);
     if(atHome) garage = +st.garageMin;
   }
+  // Lluvia: más tráfico y más tiempo
+  let rain=null, rainMin=0, learn=null;
+  const depApprox = addMin(arrive, -(buffer+parkMin+travel+garage));
+  if(!inst.manualTravel){
+    rain = await rainAt(inst.dest, depApprox);
+    if(rain){ rainMin = inst.mode==='car' ? Math.round((travel+parkMin)*(rain.heavy?0.3:0.18)) : inst.mode==='transit' ? (rain.heavy?6:3) : inst.mode==='bike' ? Math.round(travel*0.15) : 2; travel += rainMin; worst += rainMin; }
+  }
+  const rawDoor = garage+travel+parkMin;
+  // Lo aprendido de tus viajes reales a este sitio a una hora parecida
+  if(!inst.manualTravel){
+    learn = learnedDelta(inst.mode, inst.dest, depApprox);
+    if(learn){ travel = Math.max(1, travel+learn.delta); worst = Math.max(travel, worst+learn.delta); }
+  }
   const drive = addMin(arrive, -(buffer+parkMin+travel));
   const leave = addMin(drive, -garage);
   const prep = addMin(leave, -prepMin);
@@ -473,7 +489,7 @@ async function compute(inst){
   // "alarma de seguridad" con el peor tráfico (como el vídeo: +X min de sueño)
   const worstWake = addMin(arrive, -(buffer+parkMin+worst+garage+prepMin+st.wakeMin));
   const extraSleep = Math.max(0, Math.round((wake-worstWake)/60000));
-  return {segs:r.segs, garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
+  return {rain, rainMin, learn, rawDoor, segs:r.segs, garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
 }
 
 /* ---------- Mapa del trayecto con tráfico habitual por tramos ---------- */
@@ -526,6 +542,118 @@ function mountMaps(){
     setTimeout(()=>map.invalidateSize(), 250);
   });
 }
+/* ---------- Lluvia (Open-Meteo, gratis y sin clave) ---------- */
+const rainCache = {};
+async function rainAt(p, date){
+  const ms = date - Date.now();
+  if(ms < -3600e3 || ms > 6.5*864e5) return null;           // fuera del pronóstico
+  const k = `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`;
+  let c = rainCache[k];
+  if(!c || Date.now()-c.t > 3600e3){
+    try{
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.lat.toFixed(3)}&longitude=${p.lon.toFixed(3)}&hourly=precipitation,precipitation_probability&timezone=auto&forecast_days=7`);
+      const j = await r.json();
+      c = rainCache[k] = {t:Date.now(), time:j.hourly.time, mm:j.hourly.precipitation, pr:j.hourly.precipitation_probability};
+    }catch(e){ return null; }
+  }
+  const key = `${ymd(date)}T${pad(date.getHours())}:00`;
+  const i = c.time.indexOf(key); if(i<0) return null;
+  const mm=c.mm[i]||0, pr=c.pr[i]||0;
+  if(mm>=0.3 || pr>=65) return {mm, pr, heavy: mm>=2};
+  return null;
+}
+
+/* ---------- Aprender de tus trayectos reales ---------- */
+const destKey = (mode,d) => `${mode}|${d.lat.toFixed(3)},${d.lon.toFixed(3)}`;
+const isWeekend = d => d.getDay()===0 || d.getDay()===6;
+function tripsFor(mode, dest){ const k=destKey(mode,dest); return (S.trips||[]).filter(t=>t.k===k); }
+function learnedDelta(mode, dest, dep){
+  const depMin = dep.getHours()*60+dep.getMinutes(), we=isWeekend(dep);
+  const sim = tripsFor(mode,dest).filter(t=>Math.abs(t.depMin-depMin)<=60 && t.we===we).slice(-10);
+  if(sim.length<2) return null;
+  const ds = sim.map(t=>t.dur-t.pred).sort((a,b)=>a-b);
+  const med = ds[Math.floor(ds.length/2)];
+  return {n:sim.length, delta:Math.max(-30, Math.min(45, Math.round(med)))};
+}
+function tripStart(key){
+  const c = computed[key]; if(!c) return;
+  S.activeTrip = {key, name:c.inst.name, dest:c.inst.dest, mode:c.inst.mode, start:Date.now(), pred:c.rawDoor, planId:c.inst.kind==='plan'?c.inst.srcId:null};
+  save(); renderTripBar(); syncTripWatch();
+}
+function tripEnd(at){
+  const a=S.activeTrip; if(!a) return;
+  at = at || Date.now();
+  const dur = Math.round((at-a.start)/60000), s=new Date(a.start);
+  if(dur>=2 && dur<=300){
+    S.trips ||= [];
+    S.trips.push({k:destKey(a.mode,a.dest), mode:a.mode, depMin:s.getHours()*60+s.getMinutes(), we:isWeekend(s), dur, pred:a.pred, ts:a.start});
+    if(S.trips.length>300) S.trips.splice(0, S.trips.length-300);
+    toast(`📈 Guardado: ${dur} min (previsto ${a.pred})`);
+  }
+  S.activeTrip=null; save(); computed={}; renderAll();
+}
+function salgoYa(key){
+  const c=computed[key]; if(!c) return;
+  if(c.inst.kind==='plan'){ const p=S.plans.find(x=>x.id===c.inst.srcId); if(p?.shared && !p.shared.meStatus){ markLeft(p.id); return; } }
+  tripStart(key); toast('🚪 ¡Buen viaje! Pulsa “He llegado” al llegar');
+}
+function heLlegado(at){
+  const a=S.activeTrip; if(!a) return;
+  if(a.planId){ const p=S.plans.find(x=>x.id===a.planId); if(p?.shared && p.shared.meStatus!=='arrived'){ p.shared.meStatus='arrived'; save(); sendData(p,{type:'arrived'}); sendHuman(p, `📍 ${S.settings.myName||'Alguien'} ya ha llegado`, p.name); } }
+  tripEnd(at);
+}
+function renderTripBar(){
+  const box=$('#tripBar'), a=S.activeTrip;
+  if(!a){ box.innerHTML=''; return; }
+  const mins=Math.round((Date.now()-a.start)/60000);
+  box.innerHTML = `<div class="card" style="margin-top:12px;border-color:#5a4318">
+    <div class="row between"><b>${MODE[a.mode].ic} En camino a ${esc(a.name)}</b><span class="pill">${mins} min</span></div>
+    <div class="tiny muted" style="margin:4px 0 10px">Saliste a las ${hm(new Date(a.start))} · previsto ${a.pred} min puerta a puerta</div>
+    <div class="row" style="gap:8px"><button class="btn pri" style="flex:1" onclick="heLlegado()">📍 He llegado</button>
+    <input class="i" type="time" id="arrAt" style="width:110px" title="¿Llegaste antes? Pon la hora">
+    <button class="btn sm" onclick="const v=$('#arrAt').value; if(!v) return toast('Pon la hora'); const [h,m]=v.split(':'); const d=new Date(); d.setHours(+h,+m,0,0); heLlegado(+d)">OK</button></div>
+    <button class="btn ghost sm" style="margin-top:6px" onclick="S.activeTrip=null;save();renderTripBar()">Cancelar viaje</button></div>`;
+}
+/* GPS: llegada automática (y salida si lo activas), solo con la web abierta */
+let tripWatch=null;
+function syncTripWatch(){
+  if(!navigator.geolocation) return;
+  const want = S.activeTrip || (S.settings.autoGPS && !S.activeTrip);
+  if(!want){ if(tripWatch!=null){ navigator.geolocation.clearWatch(tripWatch); tripWatch=null; } return; }
+  if(tripWatch!=null) return;
+  tripWatch = navigator.geolocation.watchPosition(pos=>{
+    const here={lat:pos.coords.latitude, lon:pos.coords.longitude};
+    const a=S.activeTrip;
+    if(a){ if(haversine(here,a.dest)<150) heLlegado(); return; }
+    if(S.settings.autoGPS && S.settings.home && haversine(here,S.settings.home)>300){
+      const n=Date.now();
+      const next=Object.entries(computed).map(([k,c])=>[k,c]).find(([k,c])=>n>=+c.prep-10*60000 && n<=+c.arrive);
+      if(next && !S.lastAuto?.includes(next[0])){ S.lastAuto=next[0]; tripStart(next[0]); toast('🚪 He detectado que has salido'); }
+    }
+  }, ()=>{}, {enableHighAccuracy:true, maximumAge:30000});
+}
+
+/* ---------- Horario de alarmas para el iPhone (se guarda en tu iPhone) ---------- */
+async function buildSchedule(days=14){
+  const cfg=alarmCfg(), byDay={};
+  for(const i of instancesNext(days)){
+    if(i.kind!=='routine' || i.holiday) continue;
+    try{ const c = computed[i.key] || await compute(i); computed[i.key]=c;
+      const ref = (cfg.ref==='wake' && c.prep.getHours()>=11) ? 'prep' : cfg.ref;
+      (byDay[ymd(i.arrive)] ||= []).push(...alarmTimes(c,{...cfg, ref}).map(hm));
+    }catch(e){}
+  }
+  return Object.entries(byDay).sort().map(([d,ts])=>`${d}=${[...new Set(ts)].sort().join('|')}`);
+}
+async function sendSchedule(){
+  toast('Calculando 14 días…');
+  const lines = await buildSchedule(14);
+  if(!lines.length) return toast('No hay rutinas activas en los próximos 14 días');
+  S.settings.schedUntil = lines[lines.length-1].slice(0,10); save();
+  location.href = `shortcuts://run-shortcut?name=${encodeURIComponent('ATiempo Guardar')}&input=text&text=${encodeURIComponent(lines.join('\n'))}`;
+  setTimeout(()=>renderRoutines(), 800);
+}
+
 /* ---------- Festivos (Madrid) ---------- */
 const HOLIDAYS = {
   cam:{'2026-01-01':'Año Nuevo','2026-01-06':'Reyes','2026-04-02':'Jueves Santo','2026-04-03':'Viernes Santo','2026-05-01':'Fiesta del Trabajo','2026-05-02':'Fiesta de la Comunidad','2026-08-15':'Asunción','2026-10-12':'Fiesta Nacional','2026-11-02':'Todos los Santos','2026-12-07':'Constitución','2026-12-08':'Inmaculada','2026-12-25':'Navidad',
@@ -604,10 +732,12 @@ function timelineHTML(c, opts={}){
     ${(()=>{ const mh = mapHTML(c); if(mh) setTimeout(mountMaps,0); return mh ? `<div class="blk b-drive withmap">
       <div class="h"><span>${MODE[c.inst.mode].ic} ${MODE[c.inst.mode].n}${c.km?` · ${c.km.toFixed(1)} km`:''}</span><span style="color:${travelCol}">${c.travel} min</span></div>
       ${c.inst.mode==='car'?`<div class="foot">${trafficTxt} · ×${c.tf.toFixed(2)}${c.inst.manualTravel?' · tiempo manual':''}</div>`:''}
+      ${extrasHTML(c)}
       ${mh}</div>` : ''; })()}
     <div class="blk b-drive" style="min-height:${Math.max(84,h(c.travel))}px;${c.segs?.length&&window.L&&c.inst.mode!=='transit'?'display:none':''}">
       <div class="h"><span>${MODE[c.inst.mode].ic} ${MODE[c.inst.mode].n}${c.km?` · ${c.km.toFixed(1)} km`:''}</span><span style="color:${travelCol}">${c.travel} min</span></div>
       ${c.inst.mode==='car'?`<div class="foot">${trafficTxt} · ×${c.tf.toFixed(2)}${c.inst.manualTravel?' · tiempo manual':''}</div>`:''}
+      ${extrasHTML(c)}
       ${roadSVG(lvl)}
     </div>
     ${c.park?`<div class="blk b-park" style="min-height:${h(c.parkMin)}px">
@@ -615,6 +745,12 @@ function timelineHTML(c, opts={}){
     </div>`:''}
     <div class="blk b-dest">🧳 ${hm(c.arrive)} · ${esc(c.inst.name||c.inst.dest.label)} ${c.buffer?`<span class="muted tiny" style="margin-left:auto">margen ${c.buffer} min</span>`:''}</div>
   </div>`;
+}
+function extrasHTML(c){
+  const t=[];
+  if(c.rain) t.push(`🌧️ Lluvia prevista: +${c.rainMin} min`);
+  if(c.learn) t.push(`📈 Tus ${c.learn.n} últimos viajes: ${c.learn.delta>=0?'+':''}${c.learn.delta} min`);
+  return t.length ? `<div class="foot" style="color:#c7d2fe;margin-top:2px">${t.join(' · ')}</div>` : '';
 }
 function widgetHTML(c){
   const lvl = c.inst.mode==='car'?trafficLevel(c.tf):'green';
@@ -640,7 +776,7 @@ async function renderHoy(){
   const t=new Date();
   $('#todayStr').textContent = t.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
   const list = instancesNext(7);
-  renderAsk();
+  renderAsk(); renderTripBar(); syncTripWatch();
   if(!S.settings.home){
     $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px"><b>👋 Empieza por aquí</b><div class="sub" style="margin:6px 0 12px">Dime dónde vives y crea tu primera rutina (p. ej. ir a trabajar) para ver a qué hora levantarte.</div><button class="btn pri" onclick="go('ajustes')">Configurar mi casa</button></div>`;
   } else if(!list.some(i=>!i.holiday)){
@@ -674,6 +810,7 @@ async function renderHoy(){
         $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px;padding:12px">
           <div class="row between"><span class="pill">${dayName(i.arrive)} · ${esc(i.name||i.dest.label)}</span><span class="pill" id="cd"></span></div>
           ${timelineHTML(c)}${widgetHTML(c)}
+          ${!S.activeTrip && Date.now()>=+c.prep-15*60000 && Date.now()<+c.arrive ? `<button class="btn" style="width:100%;margin-top:12px;border-color:var(--accent)" onclick="salgoYa('${esc(i.key)}')">🚪 Salgo ya (para aprender cuánto tardas)</button>`:''}
           <button class="btn pri" style="width:100%;margin-top:12px" onclick="openAlarms('${esc(i.key)}')">⏰ Poner alarmas en el móvil</button></div>`;
         $('#cd').textContent = countdownTxt(c);
       }
@@ -816,7 +953,12 @@ async function openDetail(key){
         <button class="btn" style="flex:1" onclick="openForm('${inst.kind}','${inst.srcId}')">✏️ Editar</button>
         <button class="btn" style="flex:1" onclick="exportICS('${inst.srcId}')">📅 Al calendario</button>
       </div>
-      <button class="btn pri" style="width:100%;margin-top:8px" onclick="openAlarms('${esc(key)}')">⏰ Poner alarmas en el móvil</button>`;
+      <button class="btn pri" style="width:100%;margin-top:8px" onclick="openAlarms('${esc(key)}')">⏰ Poner alarmas en el móvil</button>
+      ${!S.activeTrip?`<button class="btn" style="width:100%;margin-top:8px" onclick="closeSheet();salgoYa('${esc(key)}')">🚪 Salgo ya</button>`:''}
+      ${(()=>{ const ts=tripsFor(inst.mode,inst.dest); if(!ts.length) return `<div class="tiny muted" style="margin-top:12px">📈 Pulsa “Salgo ya” y “He llegado” en tus viajes y ATiempo aprenderá cuánto tardas tú de verdad.</div>`;
+        const avg=Math.round(ts.reduce((a,t)=>a+t.dur,0)/ts.length), pv=Math.round(ts.reduce((a,t)=>a+t.pred,0)/ts.length);
+        return `<div class="card" style="margin-top:12px"><b>📈 Tus viajes aquí (${ts.length})</b><div class="tiny muted" style="margin-top:4px">Media real ${avg} min · previsto ${pv} min · ${avg>pv?'tardas más de lo previsto':'llegas antes de lo previsto'}</div>
+          ${ts.slice(-5).reverse().map(t=>`<div class="kv"><span>${new Date(t.ts).toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short'})} · salida ${pad(Math.floor(t.depMin/60))}:${pad(t.depMin%60)}</span><b>${t.dur} min</b></div>`).join('')}</div>`; })()}`;
     const b=$('#dPk');
     if(b) b.onclick = async()=>{
       $('#dPkOut').innerHTML='<span class="spin"></span>';
@@ -832,6 +974,12 @@ async function openDetail(key){
 
 /* ---------- Rutinas y planes ---------- */
 function renderRoutines(){
+  const sb=$('#schedBox'), su=S.settings.schedUntil;
+  if(S.routines.some(r=>r.enabled) && isIOS){
+    const left = su ? Math.round((new Date(su+'T12:00')-new Date())/864e5) : null;
+    sb.innerHTML = `<div class="card" style="margin-top:12px;${left!=null&&left<4?'border-color:#7a5a12':''}"><div class="row between"><div><b>📲 Alarmas automáticas</b><div class="tiny muted">${su?(left<0?'⚠️ El horario del iPhone ha caducado':`Horario en tu iPhone hasta el ${su.split('-').reverse().join('/')}${left<4?' · ¡renuévalo!':''}`):'Aún no has enviado el horario al iPhone'}</div></div>
+      <button class="btn sm pri" onclick="sendSchedule()">${su?'Renovar':'Enviar'}</button></div></div>`;
+  } else sb.innerHTML='';
   const el=$('#routineList');
   if(!S.routines.length){ el.innerHTML=`<div class="card empty">Aún no tienes rutinas.<br><br><button class="btn pri" onclick="openForm('routine')">⏰ Crear “Ir a trabajar”</button></div>`; return; }
   el.innerHTML = S.routines.map(r=>{
@@ -903,11 +1051,13 @@ function renderSettings(){
   $('#sRisk').querySelectorAll('.chip').forEach(b=>{ b.classList.toggle('on', +b.dataset.v===st.risk); b.onclick=()=>{ st.risk=+b.dataset.v; save(); renderSettings(); renderAll(true); }; });
   $('#sNotif').classList.toggle('on', st.notif);
   $('#sHol').querySelectorAll('.chip').forEach(b=>{ b.classList.toggle('on', b.dataset.v===(st.holidays||'madrid')); b.onclick=()=>{ st.holidays=b.dataset.v; save(); renderAll(); }; });
+  $('#sAuto').classList.toggle('on', !!st.autoGPS);
   $('#sGarage').value = st.garageMin??''; $('#sName').value = st.myName||'';
 }
 ['sPrep','sBuffer','sWake'].forEach(id=>document.getElementById(id).onchange=e=>{
   const k={sPrep:'prepMin',sBuffer:'bufferMin',sWake:'wakeMin'}[id]; S.settings[k]=Math.max(0,+e.target.value||0); save(); renderAll(true);
 });
+$('#sAuto').onclick=()=>{ S.settings.autoGPS=!S.settings.autoGPS; save(); renderSettings(); syncTripWatch(); if(S.settings.autoGPS) getGPS().catch(()=>toast('Activa el permiso de ubicación')); };
 $('#sMode').onchange=e=>{ S.settings.mode=e.target.value; save(); };
 $('#sGarage').onchange=e=>{ S.settings.garageMin = e.target.value===''?null:Math.max(0,+e.target.value||0); save(); renderAll(); };
 $('#sName').onchange=e=>{ S.settings.myName=e.target.value.trim(); save(); };
@@ -1132,6 +1282,7 @@ function markLeft(id, auto){
   const p=S.plans.find(x=>x.id===id); if(!p?.shared || p.shared.meStatus) return;
   const c=computed[id]; const eta = c ? addMin(new Date(), c.garage+c.travel+c.parkMin) : addMin(new Date(),30);
   p.shared.meStatus='left'; save();
+  if(!S.activeTrip && computed[id]) tripStart(id);
   sendData(p,{type:'left', eta:+eta});
   sendHuman(p, `🚪 ${S.settings.myName||'Alguien'} ha salido${auto?' de casa':''}`, `Llegará a ${p.name} sobre las ${hm(eta)}`);
   toast(auto?'Has salido: aviso enviado ✓':'Aviso enviado ✓'); refreshPeople(id);
@@ -1139,6 +1290,7 @@ function markLeft(id, auto){
 function markArrived(id, auto){
   const p=S.plans.find(x=>x.id===id); if(!p?.shared || p.shared.meStatus==='arrived') return;
   p.shared.meStatus='arrived'; save();
+  if(S.activeTrip?.planId===id) tripEnd();
   sendData(p,{type:'arrived'});
   sendHuman(p, `📍 ${S.settings.myName||'Alguien'} ya ha llegado`, p.name);
   if(!auto) toast('Aviso enviado ✓'); refreshPeople(id);
@@ -1315,28 +1467,29 @@ async function openAlarms(key){
       const isR = c.inst.kind==='routine';
       const days = isR ? DAYS.filter(d=>c.inst.days.includes(d.d)).map(d=>d.l).join(' ') : '';
       const scName = isR ? SHORTCUT+' LV' : SHORTCUT;
-      $('#aGo').innerHTML = `${isR?`<div class="card" style="margin-bottom:10px;border-color:#2b4a46"><b>🔁 Se repetirán ${esc(days)}</b><div class="tiny muted" style="margin-top:4px">Y no sonarán en festivos de ${S.settings.holidays==='cam'?'la Comunidad de Madrid':'Madrid'} gracias a la automatización “ATiempo Festivos” (ver abajo). Próximo festivo laborable: ${esc(nextHolidayTxt())}.</div></div>`:''}
-        <a class="btn pri" style="display:block;text-align:center;text-decoration:none" href="shortcuts://run-shortcut?name=${encodeURIComponent(scName)}&input=text&text=${encodeURIComponent(text)}">Crear ${ts.length} alarma${ts.length>1?'s':''} ${isR?'que se repiten':''} en el iPhone</a>
-        ${isR?`<details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Una vez: atajo “${SHORTCUT} LV” (repetir ${esc(days)})</summary>
-        <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
-          <li>En Atajos, mantén pulsado <b>${SHORTCUT}</b> → <b>Duplicar</b>.</li>
-          <li>Abre la copia y renómbrala exactamente <b style="color:var(--txt)">${SHORTCUT} LV</b>.</li>
-          <li>En “Crear una alarma” toca la flecha <b>›</b> → <b>Repetir</b> → marca <b>${esc(days)}</b>. Pulsa OK.</li>
-          <li>Si no te sale “Repetir”, crea las alarmas y luego en <b>Reloj</b> edita cada alarma “ATiempo” → Repetir → ${esc(days)}.</li>
-        </ol></details>
-        <details style="margin-top:8px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Una vez: automatización “ATiempo Festivos” (que no suene en festivos)</summary>
-        <div class="tiny muted" style="margin:6px 0">Cada noche mira si mañana es festivo: si lo es, apaga tus alarmas “ATiempo”; si no, las enciende.</div>
-        <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
-          <li>Atajos → pestaña <b>Automatización</b> → <b>+</b> → <b>Hora del día</b> → <b>21:00</b>, <b>Diariamente</b> → marca <b>Ejecutar inmediatamente</b> → Siguiente → <b>Nuevo atajo en blanco</b>.</li>
-          <li><b>Obtener contenido de URL</b> → pega: <span class="linkbox" style="display:block;user-select:all">${esc(FESTIVOS_URL())}</span></li>
-          <li><b>Ajustar fecha</b> → <b>Añadir 1 días</b> a <b>Fecha actual</b>.</li>
-          <li><b>Formatear fecha</b> → Fecha ajustada → Formato <b>Personalizado</b> → escribe <b style="color:var(--txt)">yyyy-MM-dd</b>.</li>
-          <li><b>Obtener todas las alarmas</b>.</li>
-          <li><b>Repetir con cada</b> ítem en <b>Alarmas</b>.</li>
-          <li>Dentro: <b>Si</b> → toca la condición: <b>Ítem de repetición</b> → toca encima y elige <b>Etiqueta</b> → <b>contiene</b> → escribe <b>ATiempo</b>.</li>
-          <li>Dentro de ese Si: otro <b>Si</b> → <b>Contenido de URL</b> <b>contiene</b> → variable <b>Fecha formateada</b>.</li>
-          <li>Dentro del segundo Si: <b>Activar/desactivar alarma</b> → <b>Desactivar</b> → Ítem de repetición. En su <b>De lo contrario</b>: otra igual pero <b>Activar</b>.</li>
-        </ol></details>`:''}
+      $('#aGo').innerHTML = `${isR?`<div class="card" style="margin-bottom:12px;border-color:#2b4a46"><b>🔁 Recomendado: alarmas automáticas cada noche</b>
+          <div class="tiny muted" style="margin:4px 0 10px">Envía a tu iPhone el horario de los próximos 14 días (${esc(days)}, sin festivos, con tráfico, lluvia y lo aprendido). Cada noche a las 21:00 tu iPhone crea solo las alarmas de mañana. El horario se guarda en tu iPhone, en ningún otro sitio.</div>
+          <button class="btn pri" style="width:100%" onclick="sendSchedule()">📲 Enviar horario de 14 días al iPhone</button>
+          ${S.settings.schedUntil?`<div class="tiny" style="margin-top:6px;color:var(--green)">✓ Enviado hasta el ${esc(S.settings.schedUntil.split('-').reverse().join('/'))}</div>`:''}
+          <details style="margin-top:10px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Una vez: atajo “ATiempo Guardar” (1 acción)</summary>
+          <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
+            <li>Atajos → <b>+</b> → nómbralo <b style="color:var(--txt)">ATiempo Guardar</b>.</li>
+            <li>Añade <b>Guardar archivo</b>. Toca el azul y elige <b>Entrada de atajo</b>.</li>
+            <li>Toca la flecha <b>›</b>: desactiva <b>Preguntar dónde guardar</b>, en <b>Subruta</b> escribe <b style="color:var(--txt)">horario.txt</b> y activa <b>Sobrescribir si existe</b>.</li>
+          </ol></details>
+          <details style="margin-top:8px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Una vez: automatización “cada noche” (8 acciones)</summary>
+          <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
+            <li>Atajos → <b>Automatización</b> → <b>+</b> → <b>Hora del día</b> → <b>21:00</b> · <b>Diariamente</b> · <b>Ejecutar inmediatamente</b> → <b>Nuevo atajo en blanco</b>.</li>
+            <li><b>Obtener archivo</b> → carpeta <b>Atajos</b> → desactiva “Mostrar selector” → ruta <b style="color:var(--txt)">horario.txt</b>.</li>
+            <li><b>Ajustar fecha</b> → <b>Añadir 1 días</b> a <b>Fecha actual</b>.</li>
+            <li><b>Formatear fecha</b> → Fecha ajustada → <b>Personalizado</b> → <b style="color:var(--txt)">yyyy-MM-dd</b>.</li>
+            <li><b>Coincidir texto</b> → patrón: variable <b>Fecha formateada</b> seguida de <b style="color:var(--txt)">=(.+)</b> → en <b>Archivo</b>.</li>
+            <li><b>Obtener grupo en el índice</b> → <b>1</b> de <b>Coincidencias</b>.</li>
+            <li><b>Dividir texto</b> → Grupo → separador <b>Personalizado</b> <b style="color:var(--txt)">|</b>.</li>
+            <li><b>Repetir con cada</b> ítem en Texto dividido → dentro <b>Crear alarma</b> a las <b>Ítem de repetición</b>, nombre <b>ATiempo</b>.</li>
+          </ol></details></div>
+          <div class="tiny muted" style="margin-bottom:6px">O crea ahora solo las de mañana:</div>`:''}
+        <a class="btn ${isR?'':'pri'}" style="display:block;text-align:center;text-decoration:none" href="shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT)}&input=text&text=${encodeURIComponent(text)}">Crear ${ts.length} alarma${ts.length>1?'s':''} en el iPhone</a>
         <details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Primera vez: crea el atajo “${SHORTCUT}” (3 acciones)</summary>
         <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
           <li>App <b>Atajos</b> → pestaña <b>Atajos</b> → <b>+</b> (arriba a la derecha).</li>
@@ -1372,7 +1525,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v10';
+const APP_VERSION = 'v11';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
