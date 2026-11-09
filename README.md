@@ -13,6 +13,7 @@ Web app (PWA) que te dice **a qué hora despertarte, empezar a prepararte y sali
 - **Avisos** en el navegador y **exportación a calendario (.ics)** con alarmas (despertar, prepararte, salir) que suenan aunque la web esté cerrada.
 - **Garaje:** te pregunta cuánto tardas de casa a tu garaje y lo suma (bloque “Al garaje” → “Arrancas a las…”).
 - **Planes con más gente:** invita por WhatsApp con un enlace. Cada persona pone sus tiempos (desde dónde sale, cómo va, cuánto tarda en prepararse) y recibe sus propios avisos. Todos ven “Quién viene” (preparándose / en camino / ha llegado) y se avisa cuando alguien **sale de casa** (botón “Salgo ya” o automático con la ubicación mientras ATiempo esté abierto). Para tener push con la web cerrada, cada uno puede suscribirse al tema del plan en la app gratuita **ntfy**.
+- **Alarmas en el reloj del móvil:** eliges para qué hora (despertar / prepararte / salir), cuántas alarmas y cuántos minutos antes y después. Android: enlaces que crean la alarma en el Reloj. iPhone: atajo “ATiempo Alarmas” (instrucciones dentro de la app) que las crea todas de golpe.
 - Enlaces a Google Maps / Waze / Citymapper para comprobar el tráfico en vivo.
 
 ## Servicios (todos gratis y sin claves)

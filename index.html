@@ -580,7 +580,8 @@ async function renderHoy(){
       if(first){ first=false;
         $('#nextBox').innerHTML = `<div class="card" style="margin-top:12px;padding:12px">
           <div class="row between"><span class="pill">${dayName(i.arrive)} · ${esc(i.name||i.dest.label)}</span><span class="pill" id="cd"></span></div>
-          ${timelineHTML(c)}${widgetHTML(c)}</div>`;
+          ${timelineHTML(c)}${widgetHTML(c)}
+          <button class="btn pri" style="width:100%;margin-top:12px" onclick="openAlarms('${esc(i.key)}')">⏰ Poner alarmas en el móvil</button></div>`;
         $('#cd').textContent = countdownTxt(c);
       }
       const el = up.querySelector(`[data-key="${CSS.escape(i.key)}"] [data-out]`);
@@ -721,7 +722,8 @@ async function openDetail(key){
       <div class="row" style="margin-top:14px;gap:8px">
         <button class="btn" style="flex:1" onclick="openForm('${inst.kind}','${inst.srcId}')">✏️ Editar</button>
         <button class="btn" style="flex:1" onclick="exportICS('${inst.srcId}')">📅 Al calendario</button>
-      </div>`;
+      </div>
+      <button class="btn pri" style="width:100%;margin-top:8px" onclick="openAlarms('${esc(key)}')">⏰ Poner alarmas en el móvil</button>`;
     const b=$('#dPk');
     if(b) b.onclick = async()=>{
       $('#dPkOut').innerHTML='<span class="spin"></span>';
@@ -1144,6 +1146,71 @@ function openJoin(p){
     if(f.shareLoc) getGPS().catch(()=>{});
     setTimeout(()=>openDetail(plan.id), 600);
   };
+}
+
+/* ---------- Alarmas en el reloj del móvil ---------- */
+const SHORTCUT = 'ATiempo Alarmas';
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+const isAndroid = /Android/.test(navigator.userAgent);
+function alarmCfg(){ return Object.assign({n:3, before:10, after:5, ref:'wake', os:isIOS?'ios':isAndroid?'android':'ios'}, S.settings.alarm||{}); }
+function alarmTimes(c, cfg){
+  const base = {wake:c.wake, prep:c.prep, leave:c.leave}[cfg.ref] || c.wake;
+  const n=Math.max(1,Math.min(10,+cfg.n||1));
+  if(n===1) return [base];
+  const start=addMin(base,-(+cfg.before||0)), end=addMin(base,+cfg.after||0), span=(end-start)/60000;
+  const out=[]; for(let k=0;k<n;k++){ const t=addMin(start, Math.round(span*k/(n-1))); if(!out.some(x=>hm(x)===hm(t))) out.push(t); }
+  return out;
+}
+const REFTXT = {wake:'despertarte', prep:'empezar a prepararte', leave:'salir'};
+async function openAlarms(key){
+  let c = computed[key];
+  if(!c){ const inst=instancesNext(60).find(i=>i.key===key); if(!inst) return; try{ c=await compute(inst); computed[key]=c; }catch(e){ return toast('⚠️ '+e.message); } }
+  const cfg = alarmCfg();
+  const isMorning = c.prep.getHours()<11;
+  if(!isMorning && cfg.ref==='wake') cfg.ref='prep';
+  $('#sheet').innerHTML = `<div class="row between"><h2 style="margin:0">⏰ Alarmas en el móvil</h2><button class="btn ghost sm" onclick="closeSheet()">✕</button></div>
+    <div class="sub">${esc(c.inst.name)} · ${dayName(c.arrive)} · llegar ${hm(c.arrive)}</div>
+    <label class="f">¿Para qué hora?</label>
+    <div class="chips" id="aRef">${(isMorning?['wake','prep','leave']:['prep','leave']).map(r=>`<button class="chip ${cfg.ref===r?'on':''}" data-v="${r}">${r==='wake'?'⏰ Despertar '+hm(c.wake):r==='prep'?'💧 Prepararte '+hm(c.prep):'🚪 Salir '+hm(c.leave)}</button>`).join('')}</div>
+    <label class="f">¿Cuántas alarmas quieres?</label>
+    <div class="chips" id="aN">${[1,2,3,4,5,6].map(v=>`<button class="chip ${+cfg.n===v?'on':''}" data-v="${v}">${v}</button>`).join('')}</div>
+    <div class="grid2" id="aRange">
+      <div><label class="f">Empezar (min antes)</label><input class="i" type="number" min="0" max="120" id="aBefore" value="${cfg.before}"></div>
+      <div><label class="f">Terminar (min después)</label><input class="i" type="number" min="0" max="120" id="aAfter" value="${cfg.after}"></div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="tiny muted">Se crearán estas alarmas:</div><div class="chips" id="aPrev" style="margin-top:8px"></div></div>
+    <label class="f">Tu móvil</label>
+    <div class="chips" id="aOS"><button class="chip ${cfg.os==='ios'?'on':''}" data-v="ios"> iPhone</button><button class="chip ${cfg.os==='android'?'on':''}" data-v="android">🤖 Android</button></div>
+    <div id="aGo" style="margin-top:14px"></div>`;
+  openSheet();
+  const draw=()=>{
+    cfg.before=Math.max(0,+$('#aBefore').value||0); cfg.after=Math.max(0,+$('#aAfter').value||0);
+    S.settings.alarm={n:cfg.n,before:cfg.before,after:cfg.after,ref:cfg.ref,os:cfg.os}; save();
+    $('#aRange').style.display = +cfg.n>1?'grid':'none';
+    const ts=alarmTimes(c,cfg), label=`ATiempo · ${c.inst.name} (${REFTXT[cfg.ref]})`;
+    $('#aPrev').innerHTML = ts.map(t=>`<span class="pill" style="font-size:15px;color:var(--txt);font-weight:700">${hm(t)}</span>`).join('');
+    if(cfg.os==='android'){
+      $('#aGo').innerHTML = `<div class="tiny muted" style="margin-bottom:8px">Pulsa cada una: se abre el Reloj con la alarma ya creada (Chrome solo permite una por pulsación).</div>
+        <div class="chips">${ts.map(t=>`<a class="btn pri" style="text-decoration:none" href="intent:#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${t.getHours()};i.android.intent.extra.alarm.MINUTES=${t.getMinutes()};S.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};B.android.intent.extra.alarm.SKIP_UI=true;B.android.intent.extra.alarm.VIBRATE=true;end">⏰ ${hm(t)}</a>`).join('')}</div>`;
+    } else {
+      const text = ts.map(t=>`${hm(t)}|${label}`).join('\n');
+      $('#aGo').innerHTML = `<a class="btn pri" style="display:block;text-align:center;text-decoration:none" href="shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT)}&input=text&text=${encodeURIComponent(text)}">Crear ${ts.length} alarma${ts.length>1?'s':''} en el iPhone</a>
+        <details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Primera vez: crea el atajo “${SHORTCUT}” (2 min)</summary>
+        <ol class="tiny muted" style="line-height:1.7;padding-left:18px">
+          <li>Abre la app <b>Atajos</b> → <b>+</b> → nómbralo exactamente <b style="color:var(--txt)">${SHORTCUT}</b>.</li>
+          <li>Añade <b>Dividir texto</b>: Entrada del atajo, por <b>Nuevas líneas</b>.</li>
+          <li>Añade <b>Repetir con cada</b> elemento de Texto dividido.</li>
+          <li>Dentro: <b>Dividir texto</b> (Elemento de repetición) por separador personalizado <b>|</b>.</li>
+          <li>Dentro: <b>Obtener elemento de la lista</b> → <b>Primer elemento</b> → <b>Obtener fechas de</b> ese elemento.</li>
+          <li>Dentro: <b>Crear alarma</b> a la hora = Fechas; en <b>Etiqueta</b> usa <b>Obtener elemento → Último elemento</b> del texto dividido.</li>
+          <li>Guarda el atajo. La primera vez que lo lances desde aquí, iOS te pedirá permiso para crear alarmas: pulsa <b>Permitir siempre</b>.</li>
+        </ol></details>`;
+    }
+  };
+  const single=(sel,key)=>$(sel).querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ $(sel).querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); cfg[key]=key==='n'?+b.dataset.v:b.dataset.v; draw(); });
+  single('#aRef','ref'); single('#aN','n'); single('#aOS','os');
+  $('#aBefore').oninput=draw; $('#aAfter').oninput=draw;
+  draw();
 }
 
 /* ---------- Navegación / UI ---------- */
