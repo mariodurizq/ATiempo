@@ -1195,17 +1195,16 @@ async function openAlarms(key){
       $('#aGo').innerHTML = `<div class="tiny muted" style="margin-bottom:8px">Pulsa cada una: se abre el Reloj con la alarma ya creada (Chrome solo permite una por pulsación).</div>
         <div class="chips">${ts.map(t=>`<a class="btn pri" style="text-decoration:none" href="intent:#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${t.getHours()};i.android.intent.extra.alarm.MINUTES=${t.getMinutes()};S.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};B.android.intent.extra.alarm.SKIP_UI=true;B.android.intent.extra.alarm.VIBRATE=true;end">⏰ ${hm(t)}</a>`).join('')}</div>`;
     } else {
-      const text = ts.map(t=>`${hm(t)}|${label}`).join('\n');
+      const text = ts.map(t=>hm(t)).join('\n');
       $('#aGo').innerHTML = `<a class="btn pri" style="display:block;text-align:center;text-decoration:none" href="shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT)}&input=text&text=${encodeURIComponent(text)}">Crear ${ts.length} alarma${ts.length>1?'s':''} en el iPhone</a>
-        <details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Primera vez: crea el atajo “${SHORTCUT}” (2 min)</summary>
-        <ol class="tiny muted" style="line-height:1.7;padding-left:18px">
-          <li>Abre la app <b>Atajos</b> → <b>+</b> → nómbralo exactamente <b style="color:var(--txt)">${SHORTCUT}</b>.</li>
-          <li>Añade <b>Dividir texto</b>: Entrada del atajo, por <b>Nuevas líneas</b>.</li>
-          <li>Añade <b>Repetir con cada</b> elemento de Texto dividido.</li>
-          <li>Dentro: <b>Dividir texto</b> (Elemento de repetición) por separador personalizado <b>|</b>.</li>
-          <li>Dentro: <b>Obtener elemento de la lista</b> → <b>Primer elemento</b> → <b>Obtener fechas de</b> ese elemento.</li>
-          <li>Dentro: <b>Crear alarma</b> a la hora = Fechas; en <b>Etiqueta</b> usa <b>Obtener elemento → Último elemento</b> del texto dividido.</li>
-          <li>Guarda el atajo. La primera vez que lo lances desde aquí, iOS te pedirá permiso para crear alarmas: pulsa <b>Permitir siempre</b>.</li>
+        <details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Primera vez: crea el atajo “${SHORTCUT}” (3 acciones)</summary>
+        <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
+          <li>App <b>Atajos</b> → pestaña <b>Atajos</b> → <b>+</b> (arriba a la derecha).</li>
+          <li>Arriba toca el nombre y escribe exactamente: <b style="color:var(--txt)">${SHORTCUT}</b></li>
+          <li>Busca <b>Dividir texto</b> y añádelo. Toca el texto azul y elige <b>Entrada del atajo</b>. Deja “Nuevas líneas”.</li>
+          <li>Busca <b>Repetir con cada</b> y añádelo debajo (se pone solo con “Texto dividido”).</li>
+          <li>Busca <b>Crear alarma</b> y arrástralo <b>dentro</b> del bloque Repetir. En la hora mantén pulsado → <b>Seleccionar variable</b> → <b>Elemento de repetición</b>. En etiqueta escribe <b>ATiempo</b>.</li>
+          <li>Pulsa <b>OK</b>. Vuelve aquí y toca el botón naranja. La primera vez iOS pregunta: <b>Permitir siempre</b>.</li>
         </ol></details>`;
     }
   };
@@ -1232,7 +1231,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v5 · alarmas';
+const APP_VERSION = 'v6 · alarmas';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
