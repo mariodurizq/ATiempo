@@ -1251,11 +1251,16 @@ function openJoin(p){
 const SHORTCUT = 'ATiempo Alarmas';
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
 const isAndroid = /Android/.test(navigator.userAgent);
-function alarmCfg(){ return Object.assign({n:3, before:10, after:5, ref:'wake', os:isIOS?'ios':isAndroid?'android':'ios'}, S.settings.alarm||{}); }
+function alarmCfg(){ return Object.assign({n:3, before:10, after:5, pos:'before', gap:5, ref:'wake', os:isIOS?'ios':isAndroid?'android':'ios'}, S.settings.alarm||{}); }
 function alarmTimes(c, cfg){
   const base = {wake:c.wake, prep:c.prep, leave:c.leave}[cfg.ref] || c.wake;
   const n=Math.max(1,Math.min(10,+cfg.n||1));
   if(n===1) return [base];
+  if(cfg.pos && cfg.pos!=='custom'){
+    const g=Math.max(1,+cfg.gap||5);
+    const first = cfg.pos==='before' ? -(n-1)*g : cfg.pos==='after' ? 0 : -Math.floor((n-1)/2)*g;
+    return Array.from({length:n},(_,k)=>addMin(base, first+k*g));
+  }
   const start=addMin(base,-(+cfg.before||0)), end=addMin(base,+cfg.after||0), span=(end-start)/60000;
   const out=[]; for(let k=0;k<n;k++){ const t=addMin(start, Math.round(span*k/(n-1))); if(!out.some(x=>hm(x)===hm(t))) out.push(t); }
   return out;
@@ -1278,6 +1283,12 @@ async function openAlarms(key){
     <div class="chips" id="aRef">${(isMorning?['wake','prep','leave']:['prep','leave']).map(r=>`<button class="chip ${cfg.ref===r?'on':''}" data-v="${r}">${r==='wake'?'⏰ Despertar '+hm(c.wake):r==='prep'?'💧 Prepararte '+hm(c.prep):'🚪 Salir '+hm(c.leave)}</button>`).join('')}</div>
     <label class="f">¿Cuántas alarmas quieres?</label>
     <div class="chips" id="aN">${[1,2,3,4,5,6].map(v=>`<button class="chip ${+cfg.n===v?'on':''}" data-v="${v}">${v}</button>`).join('')}</div>
+    <div id="aPosWrap">
+      <label class="f">¿Dónde las pongo respecto a esa hora?</label>
+      <div class="chips" id="aPos">${[['before','⬅️ Antes'],['middle','↔️ En medio'],['after','➡️ Después'],['custom','✏️ Personalizado']].map(([v,l])=>`<button class="chip ${cfg.pos===v?'on':''}" data-v="${v}">${l}</button>`).join('')}</div>
+      <div id="aGapWrap"><label class="f">Cada cuántos minutos</label>
+      <div class="chips" id="aGap">${[2,3,5,10,15].map(v=>`<button class="chip ${+cfg.gap===v?'on':''}" data-v="${v}">${v} min</button>`).join('')}</div></div>
+    </div>
     <div class="grid2" id="aRange">
       <div><label class="f">Empezar (min antes)</label><input class="i" type="number" min="0" max="120" id="aBefore" value="${cfg.before}"></div>
       <div><label class="f">Terminar (min después)</label><input class="i" type="number" min="0" max="120" id="aAfter" value="${cfg.after}"></div>
@@ -1289,10 +1300,13 @@ async function openAlarms(key){
   openSheet();
   const draw=()=>{
     cfg.before=Math.max(0,+$('#aBefore').value||0); cfg.after=Math.max(0,+$('#aAfter').value||0);
-    S.settings.alarm={n:cfg.n,before:cfg.before,after:cfg.after,ref:cfg.ref,os:cfg.os}; save();
-    $('#aRange').style.display = +cfg.n>1?'grid':'none';
+    S.settings.alarm={n:cfg.n,before:cfg.before,after:cfg.after,pos:cfg.pos,gap:cfg.gap,ref:cfg.ref,os:cfg.os}; save();
+    $('#aPosWrap').style.display = +cfg.n>1?'block':'none';
+    $('#aGapWrap').style.display = cfg.pos!=='custom'?'block':'none';
+    $('#aRange').style.display = +cfg.n>1 && cfg.pos==='custom'?'grid':'none';
     const ts=alarmTimes(c,cfg), label=`ATiempo · ${c.inst.name} (${REFTXT[cfg.ref]})`;
-    $('#aPrev').innerHTML = ts.map(t=>`<span class="pill" style="font-size:15px;color:var(--txt);font-weight:700">${hm(t)}</span>`).join('');
+    const baseT = hm({wake:c.wake, prep:c.prep, leave:c.leave}[cfg.ref]||c.wake);
+    $('#aPrev').innerHTML = ts.map(t=>`<span class="pill" style="font-size:15px;font-weight:700;${hm(t)===baseT?'background:var(--accent);color:#1a1205':'color:var(--txt)'}">${hm(t)}</span>`).join('');
     if(cfg.os==='android'){
       $('#aGo').innerHTML = `<div class="tiny muted" style="margin-bottom:8px">Pulsa cada una: se abre el Reloj con la alarma ya creada (Chrome solo permite una por pulsación).</div>
         <div class="chips">${ts.map(t=>`<a class="btn pri" style="text-decoration:none" href="intent:#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${t.getHours()};i.android.intent.extra.alarm.MINUTES=${t.getMinutes()};S.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};B.android.intent.extra.alarm.SKIP_UI=true;B.android.intent.extra.alarm.VIBRATE=true;end">⏰ ${hm(t)}</a>`).join('')}</div>`;
@@ -1335,7 +1349,8 @@ async function openAlarms(key){
     }
   };
   const single=(sel,key)=>$(sel).querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ $(sel).querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); cfg[key]=key==='n'?+b.dataset.v:b.dataset.v; draw(); });
-  single('#aRef','ref'); single('#aN','n'); single('#aOS','os');
+  single('#aRef','ref'); single('#aN','n'); single('#aOS','os'); single('#aPos','pos');
+  $('#aGap').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ $('#aGap').querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); cfg.gap=+b.dataset.v; draw(); });
   $('#aBefore').oninput=draw; $('#aAfter').oninput=draw;
   draw();
 }
@@ -1357,7 +1372,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v9';
+const APP_VERSION = 'v10';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
