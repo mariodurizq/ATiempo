@@ -25,11 +25,21 @@ function dayLabel(day) {
 }
 
 async function readSchedule() {
-  const fm = FileManager.iCloud();
-  if (!fm.bookmarkExists(BOOKMARK)) return { error: `Crea el marcador "${BOOKMARK}" en Scriptable → Settings → File Bookmarks` };
-  const path = fm.joinPath(fm.bookmarkedPath(BOOKMARK), FILE);
-  if (!fm.fileExists(path)) return { error: "No encuentro horario.txt. Envíalo desde la web ATiempo." };
-  try { await fm.downloadFileFromiCloud(path); } catch (e) {}
+  // El marcador puede apuntar a iCloud Drive o a "En mi iPhone": probamos ambos
+  const managers = [FileManager.iCloud(), FileManager.local()];
+  let fm = managers.find(m => { try { return m.bookmarkExists(BOOKMARK); } catch (e) { return false; } });
+  if (!fm) return { error: `Crea el marcador "${BOOKMARK}" en Scriptable → Settings → File Bookmarks` };
+  const dir = fm.bookmarkedPath(BOOKMARK);
+  let files = [];
+  try { files = fm.listContents(dir); } catch (e) {}
+  // horario.txt, o cualquier "horario*.txt" (por si iOS lo renombró a "horario 2.txt")
+  const name = files.includes(FILE) ? FILE : files.filter(f => /^horario.*\.txt$/i.test(f)).sort().pop();
+  if (!name) {
+    const folder = dir.split("/").filter(Boolean).slice(-2).join("/");
+    return { error: `No hay horario.txt en "${folder}". Veo: ${files.slice(0, 6).join(", ") || "(carpeta vacía)"}` };
+  }
+  const path = fm.joinPath(dir, name);
+  try { if (fm.isFileStoredIniCloud && fm.isFileStoredIniCloud(path)) await fm.downloadFileFromiCloud(path); } catch (e) {}
   const text = fm.readString(path) || "";
   const alarms = {}, info = {};
   for (const line of text.split(/\r?\n/)) {
