@@ -237,6 +237,19 @@ input.i:focus{border-color:var(--accent)}
       <button class="btn pri" onclick="exportICS()">📅 Exportar al calendario</button>
     </div>
     <div class="card" style="margin-top:12px">
+      <b>📱 Widget para la pantalla de inicio (iPhone)</b>
+      <div class="tiny muted" style="margin:4px 0 10px">Con la app gratuita <b>Scriptable</b>: muestra tu próxima alarma y a qué hora salir, leyendo el horario que envías al iPhone.</div>
+      <button class="btn pri" onclick="copyWidget()">📋 Copiar código del widget</button>
+      <details style="margin-top:10px"><summary class="tiny" style="cursor:pointer;color:var(--accent)">Cómo instalarlo (5 min)</summary>
+      <ol class="tiny muted" style="line-height:1.8;padding-left:18px">
+        <li>Instala <b>Scriptable</b> desde el App Store (gratis).</li>
+        <li>Scriptable → ⚙️ <b>Settings</b> → <b>File Bookmarks</b> → <b>+</b> → <b>Pick Folder</b> → elige la carpeta donde está tu horario.txt (por ejemplo <b>Chrome</b>) → nómbralo exactamente <b style="color:var(--txt)">ATiempo</b>.</li>
+        <li>Vuelve, pulsa <b>+</b> (nuevo script), pega el código y pon de nombre <b>ATiempo</b> (arriba). Pulsa ▶︎ para probar.</li>
+        <li>Pantalla de inicio → mantén pulsado → <b>+</b> → <b>Scriptable</b> → tamaño pequeño o mediano → toca el widget → <b>Script: ATiempo</b>.</li>
+        <li>Pantalla de bloqueo: mantenla pulsada → <b>Personalizar</b> → widgets → Scriptable (rectangular) → Script: ATiempo.</li>
+      </ol></details>
+    </div>
+    <div class="card" style="margin-top:12px">
       <b>Copia de seguridad</b>
       <div class="row" style="margin-top:10px;gap:8px">
         <button class="btn sm" onclick="exportJSON()">⬇️ Exportar datos</button>
@@ -636,21 +649,27 @@ function syncTripWatch(){
 
 /* ---------- Horario de alarmas para el iPhone (se guarda en tu iPhone) ---------- */
 async function buildSchedule(days=14){
-  const cfg=alarmCfg(), byDay={};
+  const cfg=alarmCfg(), byDay={}, info={};
   for(const i of instancesNext(days)){
     if(i.kind!=='routine' || i.holiday) continue;
     try{ const c = computed[i.key] || await compute(i); computed[i.key]=c;
       const ref = c.tele ? 'wake' : (cfg.ref==='wake' && c.prep.getHours()>=11) ? 'prep' : cfg.ref;
-      (byDay[ymd(i.arrive)] ||= []).push(...alarmTimes(c,{...cfg, ref}).map(hm));
+      const d=ymd(i.arrive);
+      (byDay[d] ||= []).push(...alarmTimes(c,{...cfg, ref}).map(hm));
+      if(!info[d] || c.arrive < info[d].arrive) info[d] = c;
     }catch(e){}
   }
-  return Object.entries(byDay).sort().map(([d,ts])=>`${d}=${[...new Set(ts)].sort().join('|')}`);
+  // Líneas de datos para el widget (empiezan por @ para que la automatización de alarmas las ignore)
+  const clean = t => String(t).replace(/[;=|\n]/g,' ').slice(0,30);
+  const extra = Object.entries(info).sort().map(([d,c])=>`@${d};${c.tele?'tele':'oficina'};${clean(c.inst.name)};despertar=${hm(c.wake)};salir=${hm(c.leave)};llegar=${hm(c.arrive)};trayecto=${c.travel}`);
+  return [...Object.entries(byDay).sort().map(([d,ts])=>`${d}=${[...new Set(ts)].sort().join('|')}`), ...extra];
 }
 async function sendSchedule(){
   toast('Calculando 14 días…');
   const lines = await buildSchedule(14);
   if(!lines.length) return toast('No hay rutinas activas en los próximos 14 días');
-  S.settings.schedUntil = lines[lines.length-1].slice(0,10); save();
+  const al = lines.filter(l=>!l.startsWith('@'));
+  S.settings.schedUntil = (al[al.length-1]||'').slice(0,10); save();
   location.href = `shortcuts://run-shortcut?name=${encodeURIComponent('ATiempo Guardar')}&input=text&text=${encodeURIComponent(lines.join('\n'))}`;
   setTimeout(()=>renderRoutines(), 800);
 }
@@ -1579,6 +1598,10 @@ async function openAlarms(key){
   draw();
 }
 
+async function copyWidget(){
+  try{ const t = await (await fetch('widget.js',{cache:'no-store'})).text(); await navigator.clipboard.writeText(t); toast('Código copiado ✓ Pégalo en Scriptable'); }
+  catch(e){ toast('No se pudo copiar. Ábrelo en: '+appURL()+'widget.js'); }
+}
 /* ---------- Navegación / UI ---------- */
 function go(v){
   document.querySelectorAll('section.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+v));
@@ -1596,7 +1619,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});

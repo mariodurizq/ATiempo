@@ -18,6 +18,7 @@ Web app (PWA) que te dice **a qué hora despertarte, empezar a prepararte y sali
 - **Aprende de tus viajes reales:** botones “Salgo ya” / “He llegado” (o GPS con la web abierta). Con 2+ viajes a un sitio a una hora parecida, corrige el tiempo previsto con la mediana real.
 - **Lluvia:** Open-Meteo (gratis). Si se espera lluvia a tu hora de salida, suma minutos y lo indica.
 - **Alarmas automáticas en iPhone:** la web envía al atajo “ATiempo Guardar” un horario de 14 días (sin festivos) que se guarda en el iPhone; una automatización nocturna crea las alarmas de mañana.
+- **Widget para iPhone (Scriptable):** `widget.js` lee horario.txt (líneas `@fecha;…` con despertar/salir/llegar) y muestra próxima alarma y hora de salir en pantalla de inicio o de bloqueo.
 - Enlaces a Google Maps / Waze / Citymapper para comprobar el tráfico en vivo.
 
 ## Servicios (todos gratis y sin claves)
