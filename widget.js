@@ -29,7 +29,13 @@ async function readSchedule() {
   const managers = [FileManager.iCloud(), FileManager.local()];
   let fm = managers.find(m => { try { return m.bookmarkExists(BOOKMARK); } catch (e) { return false; } });
   if (!fm) return { error: `Crea el marcador "${BOOKMARK}" en Scriptable → Settings → File Bookmarks` };
-  const dir = fm.bookmarkedPath(BOOKMARK);
+  const bm = fm.bookmarkedPath(BOOKMARK);
+  // El marcador puede ser el propio archivo (…/horario.txt) o la carpeta que lo contiene
+  if (/\.txt$/i.test(bm) && fm.fileExists(bm) && !fm.isDirectory(bm)) {
+    try { if (fm.isFileStoredIniCloud && fm.isFileStoredIniCloud(bm)) await fm.downloadFileFromiCloud(bm); } catch (e) {}
+    return parse(fm.readString(bm) || "");
+  }
+  const dir = /\.txt$/i.test(bm) ? bm.replace(/\/[^\/]*$/, "") : bm;
   let files = [];
   try { files = fm.listContents(dir); } catch (e) {}
   // horario.txt, o cualquier "horario*.txt" (por si iOS lo renombró a "horario 2.txt")
@@ -40,7 +46,10 @@ async function readSchedule() {
   }
   const path = fm.joinPath(dir, name);
   try { if (fm.isFileStoredIniCloud && fm.isFileStoredIniCloud(path)) await fm.downloadFileFromiCloud(path); } catch (e) {}
-  const text = fm.readString(path) || "";
+  return parse(fm.readString(path) || "");
+}
+
+function parse(text) {
   const alarms = {}, info = {};
   for (const line of text.split(/\r?\n/)) {
     let m = line.match(/^(\d{4}-\d{2}-\d{2})=(.+)$/);
