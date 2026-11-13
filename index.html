@@ -257,6 +257,7 @@ input.i:focus{border-color:var(--accent)}
       </div>
     </div>
     <button class="btn sm" style="margin-top:14px" onclick="forceUpdate()">🔄 Buscar actualización</button>
+    <button class="btn sm" style="margin-top:14px" onclick="resetCalib()">📏 Borrar calibración con Google</button>
     <p class="tiny muted" style="margin-top:18px;line-height:1.5">Rutas: OpenStreetMap (OSRM) · Direcciones: Photon/Nominatim · Parkings: Overpass. Todo gratis y sin claves. El tráfico se estima con patrones típicos de Madrid por día y hora; para tráfico en vivo, abre la ruta en Waze o Google Maps desde cada plan. Tus datos se guardan solo en este dispositivo.</p>
   </div>
 </section>
@@ -504,6 +505,13 @@ async function compute(inst){
     const atHome = inst.originType==='home' || origin.fallback || (st.home && haversine(origin, st.home)<300);
     if(atHome) garage = +st.garageMin;
   }
+  // Calibración con Google Maps (trayectos cortos y largos por separado)
+  let calib=null;
+  if(!inst.manualTravel && inst.mode==='car'){
+    const k = calKind(km), arr=(S.calib?.[k]||[]);
+    if(arr.length){ const rs=[...arr].map(x=>x.r).sort((a,b)=>a-b); calib=rs[Math.floor(rs.length/2)]; travel=Math.max(1, Math.round(travel*calib)); worst=Math.max(travel, Math.round(worst*calib)); }
+  }
+  const travelPreCal = calib ? Math.round(travel/calib) : travel;
   // Lluvia: más tráfico y más tiempo
   let rain=null, rainMin=0, learn=null;
   const depApprox = addMin(arrive, -(buffer+parkMin+travel+garage));
@@ -524,7 +532,7 @@ async function compute(inst){
   // "alarma de seguridad" con el peor tráfico (como el vídeo: +X min de sueño)
   const worstWake = addMin(arrive, -(buffer+parkMin+worst+garage+prepMin+st.wakeMin));
   const extraSleep = Math.max(0, Math.round((wake-worstWake)/60000));
-  return {rain, rainMin, learn, rawDoor, segs:r.segs, garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
+  return {calib, travelPreCal, rain, rainMin, learn, rawDoor, segs:r.segs, garage, drive, inst, origin, arrive, travel, tf, km, baseMin, park, parkMin, buffer, prepMin, leave, prep, wake, worstWake, extraSleep, src:r.src};
 }
 
 /* ---------- Mapa del trayecto con tráfico habitual por tramos ---------- */
@@ -577,6 +585,22 @@ function mountMaps(){
     setTimeout(()=>map.invalidateSize(), 250);
   });
 }
+/* ---------- Calibración con Google Maps ---------- */
+const calKind = km => km>=40 ? 'long' : 'short';
+function calibrate(key){
+  const c=computed[key]; if(!c) return;
+  const v = +prompt0('#calIn'); if(!v || v<1) return toast('Escribe los minutos que marca Google Maps');
+  const base = c.travelPreCal || c.travel;
+  const r = Math.max(0.5, Math.min(1.6, v/base));
+  S.calib ||= {}; const k=calKind(c.km);
+  (S.calib[k] ||= []).push({r, ts:Date.now(), km:Math.round(c.km)});
+  if(S.calib[k].length>12) S.calib[k].shift();
+  save(); computed={}; closeSheet(); renderAll();
+  toast(`✓ Ajustado: tus trayectos ${k==='long'?'largos (>40 km)':'cortos'} ×${r.toFixed(2)}`);
+}
+function resetCalib(){ S.calib={}; save(); computed={}; renderAll(); renderSettings(); toast('Calibración borrada'); }
+const prompt0 = sel => (document.querySelector(sel)||{}).value;
+
 /* ---------- Lluvia (Open-Meteo, gratis y sin clave) ---------- */
 const rainCache = {};
 async function rainAt(p, date){
@@ -839,6 +863,7 @@ function timelineHTML(c, opts={}){
 function extrasHTML(c){
   const t=[];
   if(c.rain) t.push(`🌧️ Lluvia prevista: +${c.rainMin} min`);
+  if(c.calib) t.push(`📏 Calibrado ×${c.calib.toFixed(2)}`);
   if(c.learn) t.push(`📈 Tus ${c.learn.n} últimos viajes: ${c.learn.delta>=0?'+':''}${c.learn.delta} min`);
   return t.length ? `<div class="foot" style="color:#c7d2fe;margin-top:2px">${t.join(' · ')}</div>` : '';
 }
@@ -1043,6 +1068,8 @@ async function openDetail(key){
       <div class="card" style="margin-top:12px">
         <div class="kv"><span>Salida desde</span><b>${esc(c.origin.label)}${c.origin.fallback?' (sin GPS)':''}</b></div>
         <div class="kv"><span>${MODE[inst.mode].ic} Trayecto</span><b>${c.travel} min${c.km?` · ${c.km.toFixed(1)} km`:''}</b></div>
+        ${inst.mode==='car'?`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="tiny muted" style="margin-bottom:6px">${c.calib?`📏 Calibrado con Google Maps (×${c.calib.toFixed(2)}). `:''}¿Google Maps o Waze dicen otro tiempo de trayecto?</div>
+          <div class="row" style="gap:8px"><input class="i" id="calIn" type="number" min="1" placeholder="Minutos que marca Google" style="flex:1"><button class="btn sm pri" onclick="calibrate('${esc(key)}')">Ajustar</button></div></div>`:''}
         ${inst.mode==='car'?`<div class="kv"><span>Tráfico previsto</span><b>×${c.tf.toFixed(2)} (${({green:'fluido',amber:'moderado',red:'hora punta'})[trafficLevel(c.tf)]})</b></div>`:''}
         ${c.park?`<div class="kv"><span>🅿️ Aparcar (${esc(c.park.zone)})</span><b>${c.parkMin} min</b></div><div class="tiny muted" style="padding:4px 0 8px">${esc(c.park.note)}</div>`:''}
         ${c.garage?`<div class="kv"><span>🚶 Casa → garaje</span><b>${c.garage} min</b></div>`:''}
@@ -1640,7 +1667,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v15';
+const APP_VERSION = 'v16';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
