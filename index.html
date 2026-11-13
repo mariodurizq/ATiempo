@@ -356,7 +356,7 @@ function getGPS(){
 
 /* ---------- Rutas (OSRM, gratis) ---------- */
 const ROUTERS = {
-  car:['https://routing.openstreetmap.de/routed-car/route/v1/driving/','https://router.project-osrm.org/route/v1/driving/'],
+  car:['https://router.project-osrm.org/route/v1/driving/','https://routing.openstreetmap.de/routed-car/route/v1/driving/'],
   walk:['https://routing.openstreetmap.de/routed-foot/route/v1/foot/'],
   bike:['https://routing.openstreetmap.de/routed-bike/route/v1/bike/']
 };
@@ -364,7 +364,7 @@ let routeCache = {};
 try{ routeCache = JSON.parse(localStorage.getItem('atiempo.routes')||'{}'); }catch(e){}
 async function route(mode,o,d){
   const m = mode==='transit' ? 'car' : mode;
-  const key = `${m}|${o.lat.toFixed(3)},${o.lon.toFixed(3)}|${d.lat.toFixed(3)},${d.lon.toFixed(3)}`;
+  const key = `v2|${m}|${o.lat.toFixed(3)},${o.lon.toFixed(3)}|${d.lat.toFixed(3)},${d.lon.toFixed(3)}`;
   const c = routeCache[key];
   if(c && c.segs && Date.now()-c.t < 14*864e5) return c;
   for(const base of ROUTERS[m]){
@@ -464,9 +464,9 @@ async function compute(inst){
         let t=+dep, total=0;
         for(const sg of r.segs){
           const mid=sg.c[Math.floor(sg.c.length/2)], kmS=haversine({lat:mid[1],lon:mid[0]}, MADRID_SOL)/1000;
-          const w = kmS<12 ? 1 : kmS<20 ? 0.7 : kmS<35 ? 0.3 : 0.05;
+          const w = kmS<12 ? 1 : kmS<20 ? 0.5 : kmS<35 ? 0.15 : 0;
           const tfx = forcePeak ? Math.max(1.5, trafficFactor(new Date(t))) : trafficFactor(new Date(t));
-          const urban = sg.sp < 60 ? 1.1 : 1.0;                 // las calles van algo más lentas que lo que dice OSM
+          const urban = sg.sp < 60 ? 1.1 : sg.sp >= 80 ? 0.92 : 1.0;   // calles algo más lentas; autovías algo más rápidas que OSM
           const m = sg.d/60 * urban * (1 + (tfx-1)*w) * st.risk;
           total += m; t += m*60000;
         }
@@ -1640,7 +1640,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
