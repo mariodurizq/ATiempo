@@ -458,13 +458,34 @@ async function compute(inst){
   const guessDep = addMin(arrive, -(baseMin*1.4+15));
   if(inst.manualTravel){ travel = +inst.manualTravel; worst = travel; }
   else if(inst.mode==='car'){
-    tf = trafficFactor(guessDep) * st.risk;
-    travel = Math.round(baseMin*1.1*tf + 2);
-    // 2ª pasada: tráfico a la hora real de salida
-    const dep2 = addMin(arrive, -(st.bufferMin + travel + (inst.hasParking?2:8)));
-    const tf2 = trafficFactor(dep2) * st.risk;
-    if(tf2!==tf){ tf=tf2; travel=Math.round(baseMin*1.1*tf + 2); }
-    worst = Math.round(baseMin*1.1*Math.max(1.5,tf)*st.risk + 2);
+    if(r.segs?.length){
+      // Tráfico tramo a tramo: solo pesa dentro y cerca de Madrid; en carretera interurbana apenas cuenta
+      const run = (dep, forcePeak) => {
+        let t=+dep, total=0;
+        for(const sg of r.segs){
+          const mid=sg.c[Math.floor(sg.c.length/2)], kmS=haversine({lat:mid[1],lon:mid[0]}, MADRID_SOL)/1000;
+          const w = kmS<12 ? 1 : kmS<20 ? 0.7 : kmS<35 ? 0.3 : 0.05;
+          const tfx = forcePeak ? Math.max(1.5, trafficFactor(new Date(t))) : trafficFactor(new Date(t));
+          const urban = sg.sp < 60 ? 1.1 : 1.0;                 // las calles van algo más lentas que lo que dice OSM
+          const m = sg.d/60 * urban * (1 + (tfx-1)*w) * st.risk;
+          total += m; t += m*60000;
+        }
+        return total;
+      };
+      let raw = run(guessDep);
+      const dep2 = addMin(arrive, -(st.bufferMin + raw + 2 + (inst.hasParking?2:8)));
+      raw = run(dep2);
+      travel = Math.round(raw + 2);
+      tf = raw / Math.max(1, baseMin);
+      worst = Math.round(run(dep2, true) + 2);
+    } else {
+      tf = trafficFactor(guessDep) * st.risk;
+      travel = Math.round(baseMin*1.1*tf + 2);
+      const dep2 = addMin(arrive, -(st.bufferMin + travel + (inst.hasParking?2:8)));
+      const tf2 = trafficFactor(dep2) * st.risk;
+      if(tf2!==tf){ tf=tf2; travel=Math.round(baseMin*1.1*tf + 2); }
+      worst = Math.round(baseMin*1.1*Math.max(1.5,tf)*st.risk + 2);
+    }
   } else if(inst.mode==='transit'){
     const h=guessDep.getHours(), off = (guessDep.getDay()===0||h>=22||h<7) ? 6 : 0;
     travel = Math.round(10 + km*2.4 + off);  // acceso + espera + ~25 km/h comercial
@@ -1619,7 +1640,7 @@ renderAll();
 checkJoin();
 setInterval(()=>{ syncWatch(); if(detailOpen) refreshPeople(detailOpen); }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) renderHoy(); });
-const APP_VERSION = 'v13';
+const APP_VERSION = 'v14';
 document.getElementById('ver').textContent = APP_VERSION;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(), 30*60000); }).catch(()=>{});
